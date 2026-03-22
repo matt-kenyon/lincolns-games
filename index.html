@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lincoln's Arcade</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: #0a0a18;
+    color: #fff;
+    font-family: 'Press Start 2P', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Scanline overlay */
+body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        transparent 0px,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+    );
+    z-index: 100;
+}
+
+/* Starfield background */
+.stars {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 0;
+}
+.star {
+    position: absolute;
+    background: #fff;
+    border-radius: 50%;
+    animation: twinkle 3s infinite alternate;
+}
+@keyframes twinkle {
+    0% { opacity: 0.3; }
+    100% { opacity: 1; }
+}
+
+.container {
+    position: relative;
+    z-index: 1;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 40px 20px;
+}
+
+/* Header */
+.header {
+    text-align: center;
+    margin-bottom: 50px;
+}
+
+.title {
+    font-size: 28px;
+    color: #ffcc00;
+    text-shadow: 0 0 20px rgba(255, 204, 0, 0.5), 0 4px 0 #aa8800;
+    margin-bottom: 12px;
+    letter-spacing: 2px;
+}
+
+.subtitle {
+    font-size: 9px;
+    color: #666;
+    letter-spacing: 3px;
+}
+
+.coin-insert {
+    margin-top: 20px;
+    font-size: 8px;
+    color: #888;
+    animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* Game cards */
+.games-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+}
+
+.game-card {
+    background: #12121f;
+    border: 2px solid #222240;
+    border-radius: 4px;
+    padding: 24px;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    transition: all 0.2s;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    position: relative;
+    overflow: hidden;
+}
+
+.game-card:hover {
+    border-color: #ffcc00;
+    box-shadow: 0 0 20px rgba(255, 204, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+.game-card:hover .play-label {
+    opacity: 1;
+}
+
+.game-icon {
+    width: 80px;
+    height: 80px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.game-icon canvas {
+    image-rendering: pixelated;
+    width: 80px;
+    height: 80px;
+}
+
+.game-info {
+    flex: 1;
+}
+
+.game-title {
+    font-size: 14px;
+    color: #ffcc00;
+    margin-bottom: 10px;
+}
+
+.game-desc {
+    font-size: 8px;
+    color: #888;
+    line-height: 1.8;
+}
+
+.game-tags {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tag {
+    font-size: 7px;
+    padding: 3px 8px;
+    border-radius: 2px;
+    background: #1a1a30;
+    color: #556;
+    border: 1px solid #2a2a44;
+}
+
+.play-label {
+    font-size: 10px;
+    color: #ffcc00;
+    opacity: 0;
+    transition: opacity 0.2s;
+    text-shadow: 0 0 10px rgba(255, 204, 0, 0.5);
+}
+
+/* Coming soon card */
+.game-card.coming-soon {
+    opacity: 0.4;
+    cursor: default;
+}
+.game-card.coming-soon:hover {
+    border-color: #222240;
+    box-shadow: none;
+    transform: none;
+}
+
+/* Footer */
+.footer {
+    text-align: center;
+    margin-top: 60px;
+    padding-top: 30px;
+    border-top: 1px solid #1a1a30;
+}
+
+.footer p {
+    font-size: 7px;
+    color: #444;
+    line-height: 2;
+}
+
+.version {
+    font-size: 7px;
+    color: #333;
+    margin-top: 8px;
+}
+</style>
+</head>
+<body>
+
+<div class="stars" id="stars"></div>
+
+<div class="container">
+    <header class="header">
+        <h1 class="title">LINCOLN'S ARCADE</h1>
+        <p class="subtitle">BROWSER GAMES BY LINCOLN KENYON</p>
+        <p class="coin-insert">SELECT A GAME TO PLAY</p>
+    </header>
+
+    <div class="games-grid">
+        <a href="/saber-duel/" class="game-card" id="saber-card">
+            <div class="game-icon">
+                <canvas id="saber-icon" width="40" height="40"></canvas>
+            </div>
+            <div class="game-info">
+                <h2 class="game-title">SABER DUEL</h2>
+                <p class="game-desc">
+                    Choose your fighter from 11 Star Wars characters.
+                    Battle through 10 levels with lightsabers, Force powers,
+                    blasters, and nukes.
+                </p>
+                <div class="game-tags">
+                    <span class="tag">FIGHTING</span>
+                    <span class="tag">1 PLAYER</span>
+                    <span class="tag">10 LEVELS</span>
+                    <span class="tag">11 CHARACTERS</span>
+                </div>
+            </div>
+            <span class="play-label">PLAY ></span>
+        </a>
+
+        <div class="game-card coming-soon">
+            <div class="game-icon">
+                <canvas id="mystery-icon" width="40" height="40"></canvas>
+            </div>
+            <div class="game-info">
+                <h2 class="game-title" style="color: #555;">???</h2>
+                <p class="game-desc">Coming soon...</p>
+                <div class="game-tags">
+                    <span class="tag">COMING SOON</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <p>MADE WITH CODE + IMAGINATION</p>
+        <p class="version">v1.0 — 2026</p>
+    </footer>
+</div>
+
+<script>
+// Generate starfield
+const starsEl = document.getElementById('stars');
+for (let i = 0; i < 60; i++) {
+    const star = document.createElement('div');
+    star.className = 'star';
+    const size = Math.random() > 0.8 ? 2 : 1;
+    star.style.width = size + 'px';
+    star.style.height = size + 'px';
+    star.style.left = Math.random() * 100 + '%';
+    star.style.top = Math.random() * 100 + '%';
+    star.style.animationDelay = Math.random() * 3 + 's';
+    star.style.animationDuration = (2 + Math.random() * 3) + 's';
+    starsEl.appendChild(star);
+}
+
+// Saber Duel icon — crossed lightsabers
+const sc = document.getElementById('saber-icon');
+const sctx = sc.getContext('2d');
+
+function drawSaberIcon(t) {
+    sctx.clearRect(0, 0, 40, 40);
+
+    // Blue saber
+    sctx.save();
+    sctx.shadowBlur = 4;
+    sctx.shadowColor = '#2266ff';
+    sctx.strokeStyle = '#4488ff';
+    sctx.lineWidth = 2;
+    sctx.beginPath();
+    sctx.moveTo(8, 32);
+    sctx.lineTo(32, 8);
+    sctx.stroke();
+    sctx.shadowBlur = 0;
+    sctx.strokeStyle = '#fff';
+    sctx.lineWidth = 1;
+    sctx.beginPath();
+    sctx.moveTo(8, 32);
+    sctx.lineTo(32, 8);
+    sctx.stroke();
+    sctx.restore();
+
+    // Red saber
+    sctx.save();
+    sctx.shadowBlur = 4;
+    sctx.shadowColor = '#dd0000';
+    sctx.strokeStyle = '#ff4444';
+    sctx.lineWidth = 2;
+    sctx.beginPath();
+    sctx.moveTo(32, 32);
+    sctx.lineTo(8, 8);
+    sctx.stroke();
+    sctx.shadowBlur = 0;
+    sctx.strokeStyle = '#fff';
+    sctx.lineWidth = 1;
+    sctx.beginPath();
+    sctx.moveTo(32, 32);
+    sctx.lineTo(8, 8);
+    sctx.stroke();
+    sctx.restore();
+
+    // Clash glow
+    const pulse = Math.sin(t * 6) * 0.3 + 0.7;
+    sctx.save();
+    sctx.globalAlpha = pulse * 0.5;
+    sctx.shadowBlur = 6;
+    sctx.shadowColor = '#fff';
+    sctx.fillStyle = '#fff';
+    sctx.beginPath();
+    sctx.arc(20, 20, 2 + pulse, 0, Math.PI * 2);
+    sctx.fill();
+    sctx.restore();
+}
+
+// Mystery icon — question mark
+const mc = document.getElementById('mystery-icon');
+const mctx = mc.getContext('2d');
+mctx.fillStyle = '#333';
+mctx.font = 'bold 24px monospace';
+mctx.textAlign = 'center';
+mctx.fillText('?', 20, 28);
+
+// Animate
+let lastT = 0;
+let elapsed = 0;
+function animate(ts) {
+    const dt = (ts - lastT) / 1000;
+    lastT = ts;
+    elapsed += dt;
+    drawSaberIcon(elapsed);
+    requestAnimationFrame(animate);
+}
+requestAnimationFrame(ts => { lastT = ts; animate(ts); });
+</script>
+</body>
+</html>

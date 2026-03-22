@@ -1,0 +1,4283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saber Duel</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: monospace;
+}
+canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    width: 100vw;
+    height: 56.25vw; /* 16:9 */
+    max-height: 100vh;
+    max-width: 177.78vh; /* 16:9 */
+}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// ============================================================
+// SABER DUEL — Lincoln's Lightsaber Fighting Game
+// ============================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// Logical resolution (pixel art scale)
+const W = 480;
+const H = 270;
+canvas.width = W;
+canvas.height = H;
+
+// ============================================================
+// AUDIO
+// ============================================================
+let audioCtx = null;
+
+function ensureAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playTone(freq, duration, type, volume, ramp) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (ramp) osc.frequency.exponentialRampToValueAtTime(ramp, audioCtx.currentTime + duration);
+    gain.gain.setValueAtTime(volume || 0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+function playNoise(duration, volume) {
+    if (!audioCtx) return;
+    const bufferSize = audioCtx.sampleRate * duration;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(volume || 0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    // Bandpass for a "whoosh" feel
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 800;
+    filter.Q.value = 0.5;
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    source.start();
+    source.stop(audioCtx.currentTime + duration);
+}
+
+function sfxSlash() {
+    // Saber swoosh — filtered noise + descending tone
+    playNoise(0.2, 0.12);
+    playTone(600, 0.15, 'sawtooth', 0.06, 200);
+}
+
+function sfxNukeLaunch() {
+    playTone(200, 0.3, 'sawtooth', 0.12, 800);
+    playNoise(0.3, 0.08);
+}
+
+function sfxNukeExplode() {
+    playTone(60, 0.8, 'sine', 0.25, 20);
+    playTone(120, 0.6, 'square', 0.15, 30);
+    playNoise(0.6, 0.2);
+    setTimeout(() => playTone(40, 0.5, 'sine', 0.15, 15), 200);
+}
+
+function sfxBlaster() {
+    // Classic pew pew
+    playTone(1600, 0.08, 'square', 0.1, 400);
+    playTone(800, 0.12, 'sawtooth', 0.06, 200);
+}
+
+function sfxGunDraw() {
+    playTone(300, 0.08, 'square', 0.05, 500);
+}
+
+function sfxForcePush() {
+    // Deep whoosh + bass thump
+    playNoise(0.4, 0.15);
+    playTone(80, 0.3, 'sine', 0.2, 30);
+    playTone(200, 0.2, 'sawtooth', 0.06, 60);
+}
+
+function sfxLightning() {
+    // Crackling electric zap
+    playNoise(0.25, 0.1);
+    playTone(1200, 0.1, 'sawtooth', 0.08, 400);
+    playTone(800, 0.15, 'square', 0.05, 2000);
+}
+
+function sfxHit() {
+    // Impact thud + crunch
+    playTone(150, 0.15, 'square', 0.2, 40);
+    playNoise(0.1, 0.15);
+}
+
+function sfxBlock() {
+    // Metallic clash — two high tones
+    playTone(1200, 0.12, 'square', 0.1, 800);
+    playTone(1800, 0.08, 'sawtooth', 0.08, 1400);
+}
+
+function sfxJump() {
+    playTone(250, 0.15, 'sine', 0.08, 500);
+}
+
+function sfxCountdown() {
+    playTone(440, 0.15, 'sine', 0.12);
+}
+
+function sfxFight() {
+    playTone(660, 0.3, 'square', 0.1);
+    setTimeout(() => playTone(880, 0.3, 'square', 0.1), 100);
+}
+
+function sfxWin() {
+    // Ascending victory fanfare
+    const notes = [440, 554, 659, 880];
+    notes.forEach((n, i) => {
+        setTimeout(() => playTone(n, 0.25, 'square', 0.1), i * 150);
+    });
+}
+
+function sfxLose() {
+    // Descending defeat
+    const notes = [440, 370, 311, 220];
+    notes.forEach((n, i) => {
+        setTimeout(() => playTone(n, 0.3, 'sawtooth', 0.08), i * 200);
+    });
+}
+
+function sfxSelect() {
+    playTone(500, 0.08, 'square', 0.06);
+}
+
+function sfxConfirm() {
+    playTone(600, 0.1, 'square', 0.08);
+    setTimeout(() => playTone(800, 0.15, 'square', 0.08), 80);
+}
+
+// Background chiptune music
+let musicPlaying = false;
+let musicInterval = null;
+let musicStep = 0;
+let musicGainNode = null;
+
+// Epic space battle chiptune — original melody, Star Wars vibe
+// Notes in Hz (0 = rest)
+const MELODY = [
+    // Phrase 1 — dramatic rising theme
+    330, 330, 494, 494, 440, 440, 392, 392,
+    330, 330, 494, 494, 659, 659, 622, 622,
+    // Phrase 2 — tension building
+    587, 587, 494, 494, 440, 440, 392, 392,
+    370, 370, 330, 330, 294, 294, 330, 330,
+    // Phrase 3 — heroic repeat with variation
+    330, 330, 494, 494, 440, 440, 523, 523,
+    587, 587, 659, 659, 587, 587, 494, 494,
+    // Phrase 4 — resolving
+    440, 440, 392, 392, 370, 370, 330, 330,
+    392, 392, 440, 440, 330, 330, 0, 0,
+];
+
+const BASS = [
+    // Phrase 1
+    165, 0, 165, 0, 147, 0, 131, 0,
+    165, 0, 165, 0, 220, 0, 208, 0,
+    // Phrase 2
+    196, 0, 165, 0, 147, 0, 131, 0,
+    123, 0, 110, 0, 98, 0, 110, 0,
+    // Phrase 3
+    165, 0, 165, 0, 147, 0, 175, 0,
+    196, 0, 220, 0, 196, 0, 165, 0,
+    // Phrase 4
+    147, 0, 131, 0, 123, 0, 110, 0,
+    131, 0, 147, 0, 110, 0, 0, 0,
+];
+
+function startMusic() {
+    if (musicPlaying || !audioCtx) return;
+    musicPlaying = true;
+    musicStep = 0;
+
+    // Master gain for music
+    musicGainNode = audioCtx.createGain();
+    musicGainNode.gain.value = 1;
+    musicGainNode.connect(audioCtx.destination);
+
+    const BPM = 180;
+    const stepTime = 60 / BPM; // seconds per step
+
+    musicInterval = setInterval(() => {
+        if (!audioCtx || !musicPlaying) return;
+
+        const mel = MELODY[musicStep % MELODY.length];
+        const bas = BASS[musicStep % BASS.length];
+
+        // Melody voice — square wave
+        if (mel > 0) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.value = mel;
+            gain.gain.setValueAtTime(0.07, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + stepTime * 0.9);
+            osc.connect(gain);
+            gain.connect(musicGainNode);
+            osc.start();
+            osc.stop(audioCtx.currentTime + stepTime * 0.9);
+        }
+
+        // Bass voice — triangle wave
+        if (bas > 0) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.value = bas;
+            gain.gain.setValueAtTime(0.09, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + stepTime * 0.9);
+            osc.connect(gain);
+            gain.connect(musicGainNode);
+            osc.start();
+            osc.stop(audioCtx.currentTime + stepTime * 0.9);
+        }
+
+        // Percussion — noise hit on every 4th step
+        if (musicStep % 4 === 0) {
+            const bufLen = audioCtx.sampleRate * 0.05;
+            const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let i = 0; i < bufLen; i++) d[i] = Math.random() * 2 - 1;
+            const src = audioCtx.createBufferSource();
+            src.buffer = buf;
+            const g = audioCtx.createGain();
+            g.gain.setValueAtTime(0.06, audioCtx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+            src.connect(g);
+            g.connect(musicGainNode);
+            src.start();
+        }
+
+        musicStep++;
+    }, stepTime * 1000);
+}
+
+function stopMusic() {
+    musicPlaying = false;
+    if (musicInterval) {
+        clearInterval(musicInterval);
+        musicInterval = null;
+    }
+    if (musicGainNode) {
+        musicGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+    }
+}
+
+function setMusicVolume(vol) {
+    if (musicGainNode) {
+        musicGainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
+    }
+}
+
+// ============================================================
+// GAME STATE
+// ============================================================
+let gameState = 'title'; // title | select | charSelect | saberSelect | countdown | fighting | win | lose | victory
+let currentLevel = 1;
+let maxLevel = 10;
+let playerSide = 'light'; // light | dark
+let playerSaberColor = null; // chosen saber color {color, glow, name}
+let enemySaberColor = null;  // enemy gets a default
+let grievousSabers = [null, null, null, null]; // 4 saber colors for Grievous
+let grievousSlot = 0; // which slot we're editing (0-3)
+let nukeAvailable = true; // one per level
+let enemyNukeAvailable = true;
+let nukeActive = false; // explosion in progress
+let nukeTimer = 0;
+let nukeX = 0;
+let nukeY = 0;
+let nukeBolt = null; // traveling nuke projectile
+let countdownTimer = 0;
+let stateTimer = 0;
+let screenShake = 0;
+let particles = [];
+let lastTime = 0;
+let gameTime = 0; // total elapsed time for animations
+
+// ============================================================
+// INPUT
+// ============================================================
+const keys = {};
+const justPressed = {};
+window.addEventListener('keydown', e => {
+    if (!keys[e.code]) justPressed[e.code] = true;
+    keys[e.code] = true;
+    e.preventDefault();
+});
+window.addEventListener('keyup', e => {
+    keys[e.code] = false;
+    e.preventDefault();
+});
+function clearJustPressed() {
+    for (const k in justPressed) delete justPressed[k];
+}
+function anyKey() {
+    return Object.keys(justPressed).length > 0;
+}
+function pressedLeft() { return keys['ArrowLeft'] || keys['KeyA']; }
+function pressedRight() { return keys['ArrowRight'] || keys['KeyD']; }
+function pressedSlash() { return justPressed['KeyJ'] || justPressed['KeyZ']; }
+function pressedBlock() { return keys['KeyK'] || keys['KeyX']; }
+function pressedJump() { return justPressed['Space']; }
+function pressedForce() { return justPressed['KeyL'] || justPressed['KeyC']; }
+function pressedGunToggle() { return justPressed['KeyF'] || justPressed['KeyV']; }
+function pressedShoot() { return justPressed['KeyG'] || justPressed['KeyB']; }
+function pressedNuke() { return justPressed['KeyH']; }
+function pressedEnter() { return justPressed['Enter'] || justPressed['Space']; }
+
+// ============================================================
+// COLORS
+// ============================================================
+const COLORS = {
+    lightSaber: '#4488ff',
+    lightGlow: '#2266ff',
+    darkSaber: '#ff4444',
+    darkGlow: '#ff0000',
+    lightRobe: '#d4c8a0',
+    lightTunic: '#8b7d5e',
+    lightSkin: '#e8c090',
+    lightHair: '#6b4423',
+    darkRobe: '#2a2a2a',
+    darkArmor: '#444444',
+    darkSkin: '#c0a070',
+    darkHood: '#1a1a1a',
+    hpGreen: '#44cc44',
+    hpYellow: '#cccc44',
+    hpRed: '#cc4444',
+    hpBg: '#333333',
+    floor: '#3a3a4a',
+    floorLight: '#4a4a5a',
+    sky: '#0a0a18',
+    star: '#ffffff',
+};
+
+// ============================================================
+// SPRITE DEFINITIONS (ASCII pixel art)
+// ============================================================
+// Legend: . = transparent, other chars map to colors per character
+
+function parseSprite(ascii, colorMap) {
+    const rows = ascii.trim().split('\n').map(r => r.trim());
+    const h = rows.length;
+    const w = Math.max(...rows.map(r => r.length));
+    const pixels = [];
+    for (let y = 0; y < h; y++) {
+        pixels[y] = [];
+        for (let x = 0; x < w; x++) {
+            const ch = rows[y][x] || '.';
+            pixels[y][x] = ch === '.' ? null : (colorMap[ch] || null);
+        }
+    }
+    return { pixels, w, h };
+}
+
+// ============================================================
+// CHARACTER ROSTER
+// ============================================================
+const CHARACTERS = {
+    light: [
+        {
+            id: 'luke',
+            name: 'LUKE SKYWALKER',
+            shortName: 'LUKE',
+            colors: {
+                H: '#c4a44a', F: '#e8c090', R: '#1a1a1a', T: '#2a2a2a',
+                B: '#1a1a1a', S: '#4488ff', G: '#888888', P: '#e8c090',
+            },
+            defaultSaber: { name: 'GREEN', color: '#44dd44', glow: '#22aa22' },
+        },
+        {
+            id: 'yoda',
+            name: 'YODA',
+            shortName: 'YODA',
+            colors: {
+                H: '#5a8a3a', F: '#6a9a4a', R: '#8b7d5e', T: '#6b5a3a',
+                B: '#5a4a2a', S: '#44dd44', G: '#888888', P: '#6a9a4a',
+            },
+            defaultSaber: { name: 'GREEN', color: '#44dd44', glow: '#22aa22' },
+            short: true,
+        },
+        {
+            id: 'windu',
+            name: 'MACE WINDU',
+            shortName: 'WINDU',
+            colors: {
+                H: '#2a1a0a', F: '#7a5a30', R: '#6b5030', T: '#4a3520',
+                B: '#2a1a0a', S: '#bb44ff', G: '#888888', P: '#7a5a30',
+            },
+            defaultSaber: { name: 'PURPLE', color: '#bb44ff', glow: '#8822cc' },
+        },
+        {
+            id: 'quigon',
+            name: 'QUI-GON JINN',
+            shortName: 'QUI-GON',
+            colors: {
+                H: '#6a5a3a', F: '#e0c090', R: '#8b7d5e', T: '#6b5a3a',
+                B: '#5a4a2a', S: '#44dd44', G: '#888888', P: '#e0c090',
+            },
+            defaultSaber: { name: 'GREEN', color: '#44dd44', glow: '#22aa22' },
+        },
+        {
+            id: 'anakin',
+            name: 'ANAKIN SKYWALKER',
+            shortName: 'ANAKIN',
+            colors: {
+                H: '#8a7030', F: '#e8c090', R: '#2a2218', T: '#3a3028',
+                B: '#2a2218', S: '#4488ff', G: '#888888', P: '#e8c090',
+            },
+            defaultSaber: { name: 'BLUE', color: '#4488ff', glow: '#2266ff' },
+        },
+        {
+            id: 'rey',
+            name: 'REY',
+            shortName: 'REY',
+            colors: {
+                H: '#5a3a1a', F: '#e0c090', R: '#c0b098', T: '#a09078',
+                B: '#6a5a3a', S: '#ffcc22', G: '#888888', P: '#e0c090',
+            },
+            defaultSaber: { name: 'YELLOW', color: '#ffcc22', glow: '#cc9900' },
+        },
+    ],
+    dark: [
+        {
+            id: 'vader',
+            name: 'DARTH VADER',
+            shortName: 'VADER',
+            colors: {
+                H: '#111111', F: '#222222', R: '#111111', T: '#1a1a1a',
+                B: '#111111', S: '#ff4444', G: '#666666', P: '#222222',
+            },
+            defaultSaber: { name: 'RED', color: '#ff4444', glow: '#dd0000' },
+            helmet: true,
+        },
+        {
+            id: 'palpatine',
+            name: 'PALPATINE',
+            shortName: 'PALPATINE',
+            colors: {
+                H: '#1a1a1a', F: '#c0b090', R: '#1a1a1a', T: '#222222',
+                B: '#1a1a1a', S: '#aaa080', G: '#aaa080', P: '#aaa080',
+            },
+            defaultSaber: { name: 'LIGHTNING', color: '#8888ff', glow: '#4444ff' },
+            lightning: true,
+        },
+        {
+            id: 'maul',
+            name: 'DARTH MAUL',
+            shortName: 'MAUL',
+            colors: {
+                H: '#111111', F: '#cc2200', R: '#111111', T: '#222222',
+                B: '#111111', S: '#ff4444', G: '#666666', P: '#cc2200',
+            },
+            defaultSaber: { name: 'RED', color: '#ff4444', glow: '#dd0000' },
+            doubleBlade: true,
+            horns: true,
+        },
+        {
+            id: 'grievous',
+            name: 'GENERAL GRIEVOUS',
+            shortName: 'GRIEVOUS',
+            colors: {
+                H: '#ccccbb', F: '#ccaa33', R: '#aaaaaa', T: '#888888',
+                B: '#777777', S: '#4488ff', G: '#666666', P: '#999999',
+            },
+            defaultSaber: { name: 'BLUE', color: '#4488ff', glow: '#2266ff' },
+            fourSabers: true,
+        },
+        {
+            id: 'dooku',
+            name: 'COUNT DOOKU',
+            shortName: 'DOOKU',
+            colors: {
+                H: '#888888', F: '#d0b890', R: '#2a1a10', T: '#1a1210',
+                B: '#1a1210', S: '#ff4444', G: '#888888', P: '#d0b890',
+            },
+            defaultSaber: { name: 'RED', color: '#ff4444', glow: '#dd0000' },
+        },
+        {
+            id: 'kylo',
+            name: 'KYLO REN',
+            shortName: 'KYLO',
+            colors: {
+                H: '#1a1a1a', F: '#222222', R: '#111111', T: '#1a1a1a',
+                B: '#111111', S: '#ff4444', G: '#666666', P: '#222222',
+            },
+            defaultSaber: { name: 'RED', color: '#ff4444', glow: '#dd0000' },
+            helmet: true,
+            crossguard: true,
+        },
+    ],
+};
+
+// All saber colors (for Grievous who collects from everyone)
+const ALL_SABERS = [
+    { name: 'BLUE',   color: '#4488ff', glow: '#2266ff' },
+    { name: 'GREEN',  color: '#44dd44', glow: '#22aa22' },
+    { name: 'RED',    color: '#ff4444', glow: '#dd0000' },
+    { name: 'PURPLE', color: '#bb44ff', glow: '#8822cc' },
+    { name: 'YELLOW', color: '#ffcc22', glow: '#cc9900' },
+];
+
+// Selected characters
+let playerChar = CHARACTERS.light[0];
+let enemyChar = CHARACTERS.dark[0];
+
+// Legacy color maps (used as fallback)
+const LIGHT_COLORS = CHARACTERS.light[0].colors;
+const DARK_COLORS = CHARACTERS.dark[0].colors;
+
+// 12x18 sprites — compact but readable
+const SPRITE_DATA = {
+    idle: `
+....HH......
+...HFFH.....
+...HFFH.....
+....FF......
+...RRPR.....
+..RRTTRR....
+..RRTTRR....
+...RRRR.....
+....TT......
+....TT......
+....TT......
+...T..T.....
+...T..T.....
+...B..B.....
+`,
+    // Slash — arm extended forward with saber
+    slash: `
+....HH......
+...HFFH.....
+...HFFH.....
+....FF......
+...RRPGSSS..
+..RRTTRR....
+..RRTTRR....
+...RRRR.....
+....TT......
+....TT......
+....TT......
+...T..T.....
+...T..T.....
+...B..B.....
+`,
+    // Block — arm up with saber vertical
+    block: `
+....HHSS....
+...HFFHS....
+...HFFHS....
+....FFG.....
+...RRPR.....
+..RRTTRR....
+..RRTTRR....
+...RRRR.....
+....TT......
+....TT......
+....TT......
+...T..T.....
+...T..T.....
+...B..B.....
+`,
+    // Jump — legs tucked
+    jump: `
+....HH......
+...HFFH.....
+...HFFH.....
+....FF......
+...RRPR.....
+..RRTTRR....
+..RRTTRR....
+...RRRR.....
+....TT......
+...TTTT.....
+..BB..BB....
+............
+............
+............
+`,
+    // Hit — recoiling back
+    hit: `
+......HH....
+.....HFFH...
+.....HFFH...
+......FF....
+.....RRPR...
+....RRTTRR..
+....RRTTRR..
+.....RRRR...
+......TT....
+......TT....
+......TT....
+.....T..T...
+.....T..T...
+.....B..B...
+`,
+    // KO — on the ground
+    ko: `
+............
+............
+............
+............
+............
+............
+............
+............
+............
+.HHFF.RRTT..
+.HFFFRRTTRB.
+..FFRRTTTBB.
+............
+............
+`,
+};
+
+// Yoda — shorter sprite variants
+const YODA_SPRITES = {
+    idle: `
+............
+............
+............
+............
+..E.HH.E....
+...HFFH.....
+....FF......
+...RRPR.....
+..RRTTRR....
+...RRRR.....
+....TT......
+...T..T.....
+...B..B.....
+............
+`,
+    slash: `
+............
+............
+............
+............
+..E.HH.E....
+...HFFH.....
+....FF......
+...RRPGSSS..
+..RRTTRR....
+...RRRR.....
+....TT......
+...T..T.....
+...B..B.....
+............
+`,
+    block: `
+............
+............
+..E.HHSS....
+...HFFHS....
+...HFFHS....
+....FFG.....
+...RRPR.....
+..RRTTRR....
+...RRRR.....
+....TT......
+...T..T.....
+...B..B.....
+............
+............
+`,
+    jump: `
+............
+............
+............
+............
+..E.HH.E....
+...HFFH.....
+....FF......
+...RRPR.....
+..RRTTRR....
+...RRRR.....
+...TTTT.....
+..BB..BB....
+............
+............
+`,
+    hit: `
+............
+............
+............
+............
+....E.HH.E..
+.....HFFH...
+......FF....
+.....RRPR...
+....RRTTRR..
+.....RRRR...
+......TT....
+.....T..T...
+.....B..B...
+............
+`,
+    ko: `
+............
+............
+............
+............
+............
+............
+............
+............
+............
+.EHHFF.RRTT.
+.HFFFRRTTRB.
+..FFRRTTTBB.
+............
+............
+`,
+};
+
+// Vader — detailed 16x20 sprites with helmet, cape, chest panel
+const VADER_SPRITES = {
+    idle: `
+......HHHH..........
+.....HFFFFH.........
+....HHVFFVHH........
+.....HFFFFH.........
+......HHHH..........
+....KRRPPRR.........
+...KRRTTTRRK........
+...KRRDDDRR.........
+...KRRLNLRRK........
+....RRTTTRRK........
+.....Rwwrk..........
+.....RTTRK..........
+.....RTTR...........
+.....RTTRK..........
+.....RTTR...........
+....RT..TRK.........
+....RT..TR..........
+....BT..TB..........
+....BB..BB..........
+....................
+`,
+    slash: `
+......HHHH..........
+.....HFFFFH.........
+....HHVFFVHH........
+.....HFFFFH.........
+......HHHH..........
+....KRRPPGSSS.......
+...KRRTTTRRK........
+...KRRDDDRR.........
+...KRRLNLRRK........
+....RRTTTRRK........
+.....RRTTRK.........
+.....RTTRK..........
+.....RTTR...........
+.....RTTRK..........
+.....RTTR...........
+....RT..TRK.........
+....RT..TR..........
+....BT..TB..........
+....BB..BB..........
+....................
+`,
+    block: `
+.....SSHHHH.........
+....SS.HFFFFH.......
+....S.HHVFFVHH......
+......GHFFFFH.......
+....KRRPPHH.........
+...KRRTTTRRK........
+...KRRDDDRR.........
+...KRRLNLRRK........
+....RRTTTRRK........
+.....RRTTRK.........
+.....RTTRK..........
+.....RTTR...........
+.....RTTRK..........
+.....RTTR...........
+....RT..TRK.........
+....RT..TR..........
+....BT..TB..........
+....BB..BB..........
+....................
+....................
+`,
+    jump: `
+......HHHH..........
+.....HFFFFH.........
+....HHVFFVHH........
+.....HFFFFH.........
+......HHHH..........
+....KRRPPRR.........
+...KRRTTTRRK........
+...KRRDDDRR.........
+...KRRLNLRRK........
+....RRTTTRRK........
+.....RRTTRK.........
+.....RTTRK..........
+....RTTTTRKK........
+...KBBR.RBB.........
+....................
+....................
+....................
+....................
+....................
+....................
+`,
+    hit: `
+........HHHH........
+.......HFFFFH.......
+......HHVFFVHH......
+.......HFFFFH.......
+........HHHH........
+......KRRPPRR.......
+.....KRRTTTRRK......
+.....KRRDDDRR.......
+.....KRRLNLRRK......
+......RRTTTRRK......
+.......RRTTRK.......
+.......RTTRK........
+.......RTTR.........
+.......RTTRK........
+.......RTTR.........
+......RT..TRK.......
+......RT..TR........
+......BT..TB........
+......BB..BB........
+....................
+`,
+    ko: `
+....................
+....................
+....................
+....................
+....................
+....................
+....................
+....................
+....................
+....................
+....................
+....................
+....................
+..HHFF..RRDDRR......
+..HFFH.RRLNLRRK....
+...FFHRRTTTRRK......
+.....RRTTRBBK.......
+....................
+....................
+....................
+`,
+};
+
+// Maul — horns on head (add 'M' for horn markers)
+const MAUL_SPRITES = {
+    idle: `
+...M..M.....
+....HH......
+...HFFH.....
+...HFFH.....
+....FF......
+...RRPR.....
+..RRTTRR....
+..RRTTRR....
+...RRRR.....
+....TT......
+....TT......
+...T..T.....
+...T..T.....
+...B..B.....
+`,
+    slash: `
+...M..M.....
+....HH......
+...HFFH.....
+...HFFH.....
+....FF......
+...RRPGSSS..
+..RRTTRR....
+..RRTTRR....
+...RRRR.....
+....TT......
+....TT......
+...T..T.....
+...T..T.....
+...B..B.....
+`,
+    block: `
+...M..MSS...
+....HHHS....
+...HFFHS....
+...HFFHS....
+....FFG.....
+...RRPR.....
+..RRTTRR....
+..RRTTRR....
+...RRRR.....
+....TT......
+....TT......
+...T..T.....
+...T..T.....
+...B..B.....
+`,
+    jump: `
+...M..M.....
+....HH......
+...HFFH.....
+...HFFH.....
+....FF......
+...RRPR.....
+..RRTTRR....
+..RRTTRR....
+...RRRR.....
+....TT......
+...TTTT.....
+..BB..BB....
+............
+............
+`,
+    hit: `
+.....M..M...
+......HH....
+.....HFFH...
+.....HFFH...
+......FF....
+.....RRPR...
+....RRTTRR..
+....RRTTRR..
+.....RRRR...
+......TT....
+......TT....
+.....T..T...
+.....T..T...
+.....B..B...
+`,
+    ko: `
+............
+............
+............
+............
+............
+............
+............
+............
+............
+.HHFF.RRTT..
+.HFFFRRTTRB.
+..FFRRTTTBB.
+............
+............
+`,
+};
+
+// Sprite cache per character
+const spriteCache = {};
+
+function getCharSprites(char) {
+    if (spriteCache[char.id]) return spriteCache[char.id];
+
+    // Pick the right sprite set
+    let spriteSet = SPRITE_DATA;
+    if (char.id === 'yoda') spriteSet = YODA_SPRITES;
+    else if (char.id === 'maul') spriteSet = MAUL_SPRITES;
+
+    // Build color map — add special chars per character
+    const colorMap = { ...char.colors };
+    if (char.id === 'maul') colorMap['M'] = '#ffaa00';
+    if (char.id === 'yoda') colorMap['E'] = '#5a8a3a';
+    // Vader's extra colors are already in his color map (C, V, D, L, N, W, A, K)
+
+    const sprites = {};
+    for (const [name, ascii] of Object.entries(spriteSet)) {
+        sprites[name] = parseSprite(ascii, colorMap);
+    }
+    spriteCache[char.id] = sprites;
+    return sprites;
+}
+
+
+// Vader image-based sprites (AI-generated pixel art)
+const VADER_IMAGES = {};
+const VADER_IMG_LOADED = {};
+
+VADER_IMAGES.idle = new Image();
+VADER_IMAGES.idle.src = "data:image/png;base64,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";
+VADER_IMAGES.idle.onload = () => { VADER_IMG_LOADED.idle = true; };
+
+VADER_IMAGES.slash = new Image();
+VADER_IMAGES.slash.src = "data:image/png;base64,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";
+VADER_IMAGES.slash.onload = () => { VADER_IMG_LOADED.slash = true; };
+
+VADER_IMAGES.block = new Image();
+VADER_IMAGES.block.src = "data:image/png;base64,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";
+VADER_IMAGES.block.onload = () => { VADER_IMG_LOADED.block = true; };
+
+VADER_IMAGES.jump = new Image();
+VADER_IMAGES.jump.src = "data:image/png;base64,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";
+VADER_IMAGES.jump.onload = () => { VADER_IMG_LOADED.jump = true; };
+
+VADER_IMAGES.hit = new Image();
+VADER_IMAGES.hit.src = "data:image/png;base64,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";
+VADER_IMAGES.hit.onload = () => { VADER_IMG_LOADED.hit = true; };
+
+VADER_IMAGES.ko = new Image();
+VADER_IMAGES.ko.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABQCAYAAACpv3NFAAASKElEQVR4nO1aSYwk2Vn+3ouIjIzIPSurKquyepmengbTw2jsGZvFEhZYRiDEKtkHxIXl4gMXhBCbQHCyZIw5gMzFYIkTSMggkA9ICCFheSRLlmdw092e7unu6ak1s3KNfXkP/X9kVWVVV4+nqzmh/FutrIh48d7//vf/378FsKQlLWlJS1rSkpa0pCUtaUlLWtKSlrSkJS1pSUta0pKWtKQlLWlJS1rSkpa0pCUtaUlL+v9L4mm3BDQETGxuXdGtehNSGoACdK7x33ffFFqmfG3AmL+n5q8LCEgonUPP7wkBfN5p6M9++ueR/8lvoUKzf/FLuPW1/8Qrb98RgP7eXOqnXn6AB08nydydksPJDAoZ4ijCeDRBnufIVI5c5Fjf6GmhitVyZMiNDDkUcqGRa7qTQfHmT+ZNkOEb//UG7K/9G3IpkEkgI6EKfc45nLleGHJ0PGe5PsP6MwhA6zkTp5c+utMf7Iqd/iOxu3+A3f4edvb2EEchpLBOZsmLU5eaJjSO39asRfSHwO8Fvvj6wQFEGEFIC+anPo5Xf/ln8DvOqn6S8zPXLOtiy3o+b/FbPOIzvCDJY7WhWRaU8UTCCnmW4XD0WAyH22I03hGj0Z7IdVwMkAAMDS0VlNBQIj/FP+kBsUsL1VDGu1/+JyDJIV//YQiZQS8I//QRnJEHj9NPjOO7LJyLkjjvhjj/anHseWvOBz95IqQfQEea+uu9F3X2zre03r6lg+17+vbNl/XnnKYmAYn3Y+lpaz6Nvw9I8kSoR5wvKtfJ1fHFkcqd1VK6OR/8pCkWKutpJd6IpzD+9AsI4xBOw2ZAbJUtwJDHfBTvLxj9+9i2eG4MEEezEOeLWPCU2Wif5z1iLDmHu4V7qdaYhAoYp8ilhXw8wdprN/CDqy38rrTm085x4xg/FuY5Z92zhvEcGnBCxVonKvkEifP189icF39PyUXjr7Mp/vab34L1R59HfjiA6K6hoRRgGWfWWziCM7s8a4nPgwDyvI2dYPg5tGgyp248ZfwC/wSIwyQV4zRBePsd4F//A+Gdu9jLFDyYp+S2uGNeaQFbxP+hBphn9nCGjl3EAgAsLr0wjo5/ftr85JTKFtpEIqLw4aujAVbSDJf/7Mv4kVeu4o3JCG+qpAiijg3h9CYXZ2LP8Ty7PrPDp+716DYWF30aKM3vMxYu+tIFZ81THD0UwF/W2nqt7OIboY8veiMhtUR75ZqGSnncsRny0gpaaYSxjzgZHVvbggHSCDwriadt5Hu99cQhHAng+HnB0GKYAU12nsOtrmttliAyHyXTgTbKqNomBAwIU6DVbBVSJCGwkUqek96ejX1ESYS9w4ciTQJeeqVzWfe6W3j30SOMZ9vi2U1ALNz5IEIk3hZ3xswuSGLh+QmQCWxsXtF0yrQhScOEjVqlDsd2oSSg8pyn42cwOKzWWrFZSCGQqQyVmoO6rCHNUr3Xvy867Z6+snkJir3QaUj74ALQ55nAoio8RS1ovblKH0cQEqBNdtpbpLG8AWOOXu3WKixh8mAlNY8TivREsj+mzIKV2TCK65SyL0qsFBRplNAw6F0UeGHAgVIKmU4gSIK4qACwYLhnop5KpaFNUWIEz1UGrXIRRlMIWLANB2appClDlIaBG9duoFQuIYwj3L1zB0oomMKAkAJeMBSeNwakoS2rDKkoLkig85wyR2GYjjZNg21fSNKQQu2D2VRA0OoSpmHSQpBWBTd66+iu1PWj7b0i/zD0YkrzrALQ5z6kg7Olg9XuOjMThgGCSaCzDGJ9fUO3mw2kOsX9e2+LV2++ot/6zltCK1P/0Edew0df+zCr7HuPD3A43MfHXv24pl3TnF4W4+3b3xUVt65ZAwS0JW3kSHkzSmWI45AdZ6vZ0mQSOSQc20GUphiPxkhorGEVKTfhg0luVF9UAE+SlCX0ulu66tbhRx4zJpUBSBNCG7pRr7J6x0EEu+ToW7fv4uWXX9HffuvbIlEZ82VIEy+8eAkrnTqEIaFzCSUVdt7Zw6XuC/rR9j3RqLW1ISQUUj4I2nwQe3wm3fUNlF0HQmn2AJASNcvFbDiDqSSn5pZpIksz5vniGiCeVIK629K9Xg/SlAi3g5N6B9soEPgBDClRsasYywk2tzYx2O+jZtd0HAWFjUqJwNcQwoSUkjVidDjB5UtdREEMp1TWUeyzAytZZXQ3eqztqcoxHU+QRQpGlZ4WTo4jiUzg+vVr2DscwAtnePFSD4OpX+AKY8izCkCcCe6FAKmjZZYB0+QTIRezvbtb2JkATFnYJ4EWxQetdhuDgwGarRoGeYzhcARTWGz79M+PAlScKpTMYJom8kxCKQkvmoqttUtaGjYm0xFWOy2MRlOoSCHX2dx1kgcgzSE3oRk36KTzNIdUAt4sgs4zCEm8XsgE9NHRsqsil+O6TU32+ODeQ9x46QWkMVV8UiR+CpVrdNpdZorsN/QDhEGB3qOhz3PESYpE5Jh5UwbOJInFtSsv6v29/SL7EhIrKyu8kc1eD74foD8YgKpMdI8yy/F0KBrNliZBSUOwJ8mFwmBvyO5y6g/JMoCR1prAWUrMwv4zpwXm6TD4KANLcXXrBrIUGPTHCJIZ0iSDH3jIcw2nUkaSFMzuD3YEHZUUUiuVCyqLxeNdCCHRdNY0Oznt6ThMcGXrCjzf59MWRo6Xrt9gYKSYgcY/eu9dNpX+4BCmWdJJFEPlCuPRjAUXZzGSNMLU69OKzO/Y22flP47OnpGEyeibsfSpBkgC+NDN17VtmDzvd757S6w2VnWaJhhMDgSdnmmYMGBrUwr2ArZpQRomoiREvdYBuYnh9EA4pYpOskRYlq0vX74CnafIlYJpFj7bIJMyTVhpCamMsLOzj4k3E4YwtW3aSLIAlWqDTSFOEi62jb09Ll1R1KDnucPzpAVirf2Cpo1rJXA42RFU16s1W3pjvYfDYR++56NsOYjjCBsbl1AqmRhPRiCgJ22oVGzESU6RGUdrSuVQMkfZdlAtN/hk+v19rLRW0FypwZ962NnbhV0uYa27BktYVFYlP4fD0QhJkiKOE2R5wEdacRon8TXHDhkm07Ph7jyBf1qt4n1IevGkSFSEQKuxpiUs5JlGo9zEle5VbHQ24PlTClBRrVVQsiy02ivsnpIs4sVb7QYcFkSEsuvCNauIwwhSavYEuU4Z1Kiy7FZtXL9+BbZVxvbOAce9hpZIsgTkDglYcxWj6jR11a4DHArPkyKa70y97aRu9eybJ5IbnR7ijIIODRMWVhqbulZu4O37d7E/2OViZ6e9XrAwR39DGqwB1UoVk8mIewb+zOc50iBFmPiIohCPd95F/2AfQlPxWUOngt2YzCysdTpIghh5nmHieRgdzthbhDMfrl2d5xOkBAZ7GiqzH+eHC0I4r6j+LGRSCNtpruLgsI+qXYWQCn7osU+14hI5OuQUnhIMEVNkvooiusI7G1QezwWyJIXrVNHudKBUgse7j9Cur7A7HY0OERF4hTM+ZcoBpKnQ667j/oNHxSkLyWG049YK+9Y0t5xX6gQHUIIgVRL+HGUNpyuYF8EC8QMvfVTXnRam4Qha5xiO+2wCSZxSGMABCrkhAqPDSR/Xtq7grTtvCqmKlkKpVNG5VmjVq8gyBdOQrB2E2JJi2LmQiLlGo4aUXdgUVBkhWYZxgFxFwqm0NeHPUWhLwubMkeZQipMnkr4UJvrTR0LkF8n+nyRpSgefGX4WmpobpkC92eTEplyxEcUxV3CSPEWSxVBpjrpj48dev6m7my/olzav6KtXeuz7G/U687raWcVGbwOGbeNnf+6n8dEffR3ff/M6vGiCMA9Rtkqc+5mQmAZjkalYlMvNoj3A2l0ge+HR5nkQ1xuL5gu5TQqATloBRyWbCwrAMiT+bu0L+IT8JQoLkSYph52WLLHqWWYJprQQBiEjdIoEX7nXR9kuw/30H8IwKAYgeJDQFLFRcpMplAwLhizhnbv3EEcpDFh8ooZloNVqQhlFaFtzOyc9gaPOki6KI27NhVN14VZcuG4FVdfl2sFa5/JCK+T59ED+gvFrMFIbWd1HmFHLS0OS7gsFt1rB4HBPpOS/8wxKpCJMY/zGT61DORGyf/kclMiQCxKaKFSeK0E5+/rbd++gVHIx88ZzACtsOgxD6ERAakP73pB3rwlXCCyV5hS67DhsJkctMcIIxmHeM5nJ6UbKRcUgX4s+CZUKfKL8i6Ds7GBvV4Sej5nvo1QqQekUhrT4ZI988ehtCVtKxFIhyXNmnjLDI1aomkNFjhdfuI7RaIxqvQnDIOAzsTvYBUWF9VYFtUYdTqWu/WAqkiRm9SYFIJdJQRVFngH9D0PkWZGNMfRSZnlctHnOvkDrYwasTOIvhn+Av792S6+vbOlebxPdjfWiQquKBjKpOHIK1E188/f/HJmqovryb8MQJkzTYk8xCzxkmmL/CJPxCP/4z1/FzJvg9v/cRblcRalkcfpaa1ThuiW0am1kaYzV1pp2nCrCKEQwm3EFiOSZUzdaa261E1jS/FSTOBg8FoUEnh8G5VdufwldvYlG3oRnDPDrrT+GNMoMU7Q4ORzK1SkYojQ4DFNs/tXfII4yRHf+ATont2RicDhmoPK9kCtCRsnGSqeF9e46Kq4L07I43HbdKmeEhA8Tb8yqTnZOyVXVqaLZbrILoJifAXEOgHzSSmEyOxCUoZ4t2C3+PguZ31f7MD7T+VX85q1fwag0g2+NYCUCUU7AJdnvUyHDFIbeunSVPBLkW/+ODAYeho8glIF6owIoA54/FKMpZWekMQL+KMNMefxOrWFydlir1eC4ZRwejOCWHNhumWOKdqsOL/CRpBnKhoNBsC8ENaBJ87Sh3arL5kdawSWkI7exkAtcRB/M5LbGW+ldqEpRed33DrA72cdoOoLpCKy01vXgcFestje1YOeco1ltoT8ecjWITGBGwKlM5JTOpgnKlQrKVhm2ayH0IwRTnzFhY7MLSqCG0xGG4yG2eht8Tbk8RYo1t8IfWYSzEELkkFZZV+0Ga6Ef+LBLNpTOitIX2SXFEhQlPocliNcv/6TeTR8iy1O03A4e7d0SZtnVNbeKyXjCyEyFjSSOhTQJE8yi4p0X0YrtuvNytuASNxXwdvcfilZtjUu4Itd8apZpw62X0FvrMZaEWYAsSgtYpyIoJIajMfYP94RhSHpJOG5LU+xvWpILIFNvArNEmjbimjAdCK2nVHphOBCWUS0+cFAZcpUUHgYSreZqoctKsOSTPKMoURjCwOb6lpZmCUkaMBaNpyP01jeRZjlHkMPpBCULKBs1GJLwSiNIPQhtoru1iobT4KSGQj/LMuGHPh7c3+EPJjqddQRBANJ06gu0GjV2gWRSB4PDwk2aJqbjEQzHhoUSMmqr6RxBNBVFbfGDk0xzD2niI8sTtjFWc/4qRKO3dRmbl7ZglWxOeNbaG7pWb2hFGZwpUbJdZHGORq3Bzx3H5dB1td3iyhF7TQHcfOVDsEpl0FclO9t72N7bQX824tSWwDMJc0TBTLz2kVdRdR1Yho0g8FlwtI5FnWMDWOu00W430GzUUGs02UtVKg4qtgunXEOlsqIv9n0AU/HlTdHk0Zh4++LdB/fh2FWsrq/CrVRAAVEQhIL6AG6lyveqzTquXr46R2yNdqsBIQ2uByRZiCCY4dH2NrzZTFBiZBsukjjHZDTD9uMDPLz/QEzDMWeddLoEvJ1mc94HKGJEyg/oXOjaKTvwg4grS2WzDLdqYRSOEEYRoti7QEns3LZ3cTELxuLB43tcIyCM8MKpSDMfOweeyPNMa0XdOomkGWF1vYP9/X1IYWB8OKI0E3GW4Cc++eN48OAhHLPMVSVtaO4H0hJ5nqLSrOv+fl9Q/nGUNFFBhTZr2aW5RhZigEHrUe3RA+UgJcNAphWH5ZYoU4yhR96zCUGc1xc82/k/3R4/XYai6Lda72jyDG61jO33drG+ts6nNB4PYVDWKDW63UvQOmOGJ+NhgeZsJgYMw4SKY2xeulw0YIIQ/cEB1lfXisSXo2EyORtZkuFwf4ZLl9uMBf2DETrdFY5bHj7exnj6+ALNUX36S6Ojz9tO2oULdbdTNbjCD6d+LDzM9Hg8Qd1tcgK11qkg8DzYpTJWux1EQcqCMJSJbncLVHvLcvLpCmEQAJUaPM9jtKe6YcWpIAgirjXSWLdiAxn1GixUmy6n3lRtyoTiIOq47f6M9L93bEVJjZKFpwAAAABJRU5ErkJggg==";
+VADER_IMAGES.ko.onload = () => { VADER_IMG_LOADED.ko = true; };
+
+// Legacy — keep for menu screens that still use these
+const lightSprites = {};
+const darkSprites = {};
+for (const [name, ascii] of Object.entries(SPRITE_DATA)) {
+    lightSprites[name] = parseSprite(ascii, CHARACTERS.light[0].colors);
+    darkSprites[name] = parseSprite(ascii, CHARACTERS.dark[0].colors);
+}
+
+// ============================================================
+// DRAW SPRITE (with flip support)
+// ============================================================
+function drawSprite(sprite, x, y, scale, flip, saberOverride, originalSaberColor) {
+    const { pixels, w, h } = sprite;
+    for (let py = 0; py < h; py++) {
+        for (let px = 0; px < w; px++) {
+            let color = pixels[py][px];
+            if (!color) continue;
+            // Override saber color pixels with chosen color
+            if (saberOverride && originalSaberColor && color === originalSaberColor) {
+                color = saberOverride;
+            } else if (saberOverride && (color === COLORS.lightSaber || color === COLORS.darkSaber)) {
+                color = saberOverride;
+            }
+            const drawX = flip
+                ? x + (w - 1 - px) * scale
+                : x + px * scale;
+            const drawY = y + py * scale;
+            ctx.fillStyle = color;
+            ctx.fillRect(drawX, drawY, scale, scale);
+        }
+    }
+}
+
+// ============================================================
+// FIGHTER
+// ============================================================
+const GROUND_Y = H - 80;
+
+// Level layouts — platforms and walls per level
+// Platforms: { x, y, w, h } — can land on top
+// Walls: { x, y, w, h } — solid, can't walk through, must jump over
+const LEVEL_LAYOUTS = [
+    {
+        // Level 1: Death Star Hangar — open platforms
+        name: 'DEATH STAR HANGAR',
+        bg: 'deathstar',
+        platforms: [
+            { x: 40, y: GROUND_Y - 60, w: 80, h: 6 },
+            { x: W / 2 - 45, y: GROUND_Y - 100, w: 90, h: 6 },
+            { x: W - 120, y: GROUND_Y - 60, w: 80, h: 6 },
+        ],
+        walls: [],
+    },
+    {
+        // Level 2: Cloud City — walls to jump over, different platform layout
+        name: 'CLOUD CITY',
+        bg: 'cloudcity',
+        platforms: [
+            { x: 20, y: GROUND_Y - 80, w: 70, h: 6 },
+            { x: W - 90, y: GROUND_Y - 80, w: 70, h: 6 },
+        ],
+        walls: [],
+    },
+    {
+        // Level 3: Mustafar — lava planet, lots of platforms, 2 walls
+        name: 'MUSTAFAR',
+        bg: 'mustafar',
+        platforms: [
+            { x: 60, y: GROUND_Y - 50, w: 65, h: 6 },
+            { x: W / 2 - 35, y: GROUND_Y - 85, w: 70, h: 6 },
+            { x: W - 125, y: GROUND_Y - 50, w: 65, h: 6 },
+            { x: W / 2 - 90, y: GROUND_Y - 40, w: 50, h: 6 },
+            { x: W / 2 + 40, y: GROUND_Y - 40, w: 50, h: 6 },
+        ],
+        walls: [],
+    },
+    {
+        // Level 4: Endor Forest — dense platforms, tall walls
+        name: 'ENDOR',
+        bg: 'endor',
+        platforms: [
+            { x: 30, y: GROUND_Y - 55, w: 60, h: 6 },
+            { x: 120, y: GROUND_Y - 90, w: 70, h: 6 },
+            { x: W / 2 - 30, y: GROUND_Y - 55, w: 60, h: 6 },
+            { x: W - 190, y: GROUND_Y - 90, w: 70, h: 6 },
+            { x: W - 90, y: GROUND_Y - 55, w: 60, h: 6 },
+        ],
+        walls: [],
+    },
+    {
+        // Level 5: Hoth — ice planet
+        name: 'HOTH',
+        bg: 'hoth',
+        platforms: [
+            { x: 70, y: GROUND_Y - 70, w: 85, h: 6 },
+            { x: W - 155, y: GROUND_Y - 70, w: 85, h: 6 },
+            { x: W / 2 - 50, y: GROUND_Y - 45, w: 100, h: 6 },
+        ],
+        walls: [],
+    },
+    {
+        // Level 6: Naboo Throne Room
+        name: 'NABOO',
+        bg: 'naboo',
+        platforms: [
+            { x: 25, y: GROUND_Y - 50, w: 70, h: 6 },
+            { x: W / 2 - 60, y: GROUND_Y - 80, w: 120, h: 6 },
+            { x: W - 95, y: GROUND_Y - 50, w: 70, h: 6 },
+        ],
+        walls: [],
+    },
+    {
+        // Level 7: Coruscant — Jedi Temple
+        name: 'JEDI TEMPLE',
+        bg: 'coruscant',
+        platforms: [
+            { x: 50, y: GROUND_Y - 55, w: 65, h: 6 },
+            { x: 140, y: GROUND_Y - 95, w: 60, h: 6 },
+            { x: W / 2 - 30, y: GROUND_Y - 60, w: 60, h: 6 },
+            { x: W - 200, y: GROUND_Y - 95, w: 60, h: 6 },
+            { x: W - 115, y: GROUND_Y - 55, w: 65, h: 6 },
+        ],
+        walls: [],
+    },
+    {
+        // Level 8: Dagobah — murky swamp
+        name: 'DAGOBAH',
+        bg: 'dagobah',
+        platforms: [
+            { x: 35, y: GROUND_Y - 45, w: 75, h: 6 },
+            { x: W / 2 - 40, y: GROUND_Y - 75, w: 80, h: 6 },
+            { x: W - 110, y: GROUND_Y - 45, w: 75, h: 6 },
+        ],
+        walls: [],
+    },
+    {
+        // Level 9: Scarif — tropical beach battle
+        name: 'SCARIF',
+        bg: 'scarif',
+        platforms: [
+            { x: 60, y: GROUND_Y - 60, w: 70, h: 6 },
+            { x: 170, y: GROUND_Y - 90, w: 65, h: 6 },
+            { x: W - 235, y: GROUND_Y - 90, w: 65, h: 6 },
+            { x: W - 130, y: GROUND_Y - 60, w: 70, h: 6 },
+        ],
+        walls: [],
+    },
+    {
+        // Level 10: Starkiller Base — final level
+        name: 'STARKILLER BASE',
+        bg: 'starkiller',
+        platforms: [
+            { x: 30, y: GROUND_Y - 50, w: 60, h: 6 },
+            { x: 120, y: GROUND_Y - 85, w: 70, h: 6 },
+            { x: W / 2 - 35, y: GROUND_Y - 60, w: 70, h: 6 },
+            { x: W - 190, y: GROUND_Y - 85, w: 70, h: 6 },
+            { x: W - 90, y: GROUND_Y - 50, w: 60, h: 6 },
+        ],
+        walls: [],
+    },
+];
+
+// Current level's active obstacles
+let PLATFORMS = [];
+let WALLS = [];
+
+function loadLevel(level) {
+    const layout = LEVEL_LAYOUTS[Math.min(level - 1, LEVEL_LAYOUTS.length - 1)];
+    PLATFORMS = layout.platforms;
+    WALLS = layout.walls;
+    return layout;
+}
+const GRAVITY = 800;
+const MOVE_SPEED = 100;
+const JUMP_VEL = -310;
+const ATTACK_DURATION = 0.2;
+const ATTACK_COOLDOWN = 0.15;
+const BLOCK_MAX = 1.5;
+const BLOCK_COOLDOWN = 1.0;
+const HIT_STUN = 0.25;
+const KNOCKBACK = 40;
+const SPRITE_SCALE = 4;
+const FIGHTER_W = 12 * SPRITE_SCALE; // hitbox width
+const FIGHTER_H = 14 * SPRITE_SCALE; // hitbox height
+const ATTACK_RANGE = 65;
+
+const FORCE_COOLDOWN = 3.0; // seconds between Force pushes
+const FORCE_PUSH_POWER = 160; // how far they fly
+const FORCE_PUSH_DAMAGE = 5;
+const FORCE_DURATION = 0.3; // animation time
+
+// Blaster
+const BLASTER_SPEED = 350;
+const BLASTER_DAMAGE = 10;
+const BLASTER_COOLDOWN = 0.4;
+let blasterBolts = [];
+
+function createFighter(x, side, isPlayer, char) {
+    return {
+        x, y: GROUND_Y,
+        vx: 0, vy: 0,
+        hp: 100, maxHp: 100, displayHp: 100,
+        side, // 'light' or 'dark'
+        char, // character definition
+        facing: side === 'light' ? 1 : -1,
+        state: 'idle',
+        stateTimer: 0,
+        attackCooldown: 0,
+        blockTime: 0,
+        blockCooldown: 0,
+        forceCooldown: 0,
+        forceTimer: 0, // active Force push animation
+        gunDrawn: false,
+        shootCooldown: 0,
+        hasDoubleJumped: false,
+        isPlayer,
+        aiThinkTimer: 0,
+        grounded: true,
+        hitDealt: false,
+    };
+}
+
+function getFighterSprites(fighter) {
+    if (fighter.char) return getCharSprites(fighter.char);
+    return fighter.side === 'light' ? lightSprites : darkSprites;
+}
+
+// Saber color options
+const LIGHT_SABERS = [
+    { name: 'BLUE',   color: '#4488ff', glow: '#2266ff' },
+    { name: 'GREEN',  color: '#44dd44', glow: '#22aa22' },
+    { name: 'YELLOW', color: '#ffcc22', glow: '#cc9900' },
+];
+const DARK_SABERS = [
+    { name: 'RED',    color: '#ff4444', glow: '#dd0000' },
+    { name: 'PURPLE', color: '#bb44ff', glow: '#8822cc' },
+    { name: 'YELLOW', color: '#ffcc22', glow: '#cc9900' },
+];
+
+function getSaberColor(fighter, index) {
+    // Grievous has 4 sabers — index selects which one
+    if (fighter.isPlayer && fighter.char && fighter.char.fourSabers && grievousSabers[0]) {
+        return grievousSabers[index || 0];
+    }
+    if (fighter.isPlayer && playerSaberColor) return playerSaberColor;
+    if (!fighter.isPlayer && fighter.char) return fighter.char.defaultSaber;
+    if (!fighter.isPlayer && enemySaberColor) return enemySaberColor;
+    return fighter.side === 'light'
+        ? { color: COLORS.lightSaber, glow: COLORS.lightGlow }
+        : { color: COLORS.darkSaber, glow: COLORS.darkGlow };
+}
+
+// ============================================================
+// DIFFICULTY
+// ============================================================
+const DIFFICULTY = [
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+];
+
+function getDifficulty() {
+    return DIFFICULTY[Math.min(currentLevel - 1, DIFFICULTY.length - 1)];
+}
+
+// ============================================================
+// FIGHTERS
+// ============================================================
+let player, enemy;
+
+function initFight() {
+    const diff = getDifficulty();
+    loadLevel(currentLevel);
+    const pSide = playerSide;
+    const eSide = pSide === 'light' ? 'dark' : 'light';
+
+    player = createFighter(50, pSide, true, playerChar);
+    // Pick a random enemy character from the other side
+    const enemyRoster = CHARACTERS[eSide];
+    enemyChar = enemyRoster[Math.floor(Math.random() * enemyRoster.length)];
+    enemy = createFighter(W - 50 - FIGHTER_W, eSide, false, enemyChar);
+    enemy.hp = diff.hp;
+    enemy.maxHp = diff.hp;
+    enemy.displayHp = diff.hp;
+
+    // Face each other
+    player.facing = 1;
+    enemy.facing = -1;
+
+    particles = [];
+    blasterBolts = [];
+    nukeAvailable = true;
+    enemyNukeAvailable = true;
+    nukeActive = false;
+    nukeBolt = null;
+    stateTimer = 0;
+    gameState = 'versus';
+}
+
+// ============================================================
+// COMBAT
+// ============================================================
+function trySlash(fighter) {
+    if (fighter.state === 'slashing' || fighter.state === 'blocking' || fighter.state === 'hit' || fighter.state === 'ko') return;
+    if (fighter.attackCooldown > 0) return;
+    fighter.state = 'slashing';
+    fighter.stateTimer = ATTACK_DURATION;
+    fighter.hitDealt = false;
+    if (fighter.char && fighter.char.lightning) {
+        sfxLightning();
+    } else {
+        sfxSlash();
+    }
+}
+
+function tryBlock(fighter) {
+    if (fighter.state === 'slashing' || fighter.state === 'hit' || fighter.state === 'ko') return;
+    if (fighter.blockCooldown > 0) return;
+    fighter.state = 'blocking';
+    fighter.blockTime = 0;
+}
+
+function stopBlock(fighter) {
+    if (fighter.state === 'blocking') {
+        fighter.state = 'idle';
+        if (fighter.blockTime > 0.3) fighter.blockCooldown = BLOCK_COOLDOWN;
+    }
+}
+
+function tryJump(fighter) {
+    if (fighter.state === 'hit' || fighter.state === 'ko') return;
+    if (!fighter.grounded && fighter.hasDoubleJumped) return; // already used double jump
+    if (!fighter.grounded) {
+        // Double jump
+        fighter.hasDoubleJumped = true;
+        fighter.vy = JUMP_VEL * 0.85; // slightly weaker second jump
+        sfxJump();
+        return;
+    }
+    fighter.vy = JUMP_VEL;
+    fighter.grounded = false;
+    fighter.hasDoubleJumped = false;
+    if (fighter.state !== 'slashing') fighter.state = 'jumping';
+    sfxJump();
+}
+
+function toggleGun(fighter) {
+    if (fighter.state === 'hit' || fighter.state === 'ko' || fighter.state === 'slashing') return;
+    fighter.gunDrawn = !fighter.gunDrawn;
+    sfxGunDraw();
+    if (fighter.state === 'blocking') {
+        fighter.state = 'idle';
+    }
+}
+
+function tryShoot(fighter) {
+    if (!fighter.gunDrawn) return;
+    if (fighter.state === 'hit' || fighter.state === 'ko') return;
+    if (fighter.shootCooldown > 0) return;
+
+    fighter.shootCooldown = BLASTER_COOLDOWN;
+    sfxBlaster();
+
+    // Create a blaster bolt
+    const dir = fighter.facing;
+    const bx = dir === 1 ? fighter.x + FIGHTER_W + 2 : fighter.x - 2;
+    const by = fighter.y + FIGHTER_H / 2 - 2;
+    const boltColor = fighter.side === 'light' ? '#44ff44' : '#ff4444'; // green for good guys, red for bad
+    const boltGlow = fighter.side === 'light' ? '#22aa22' : '#dd0000';
+
+    blasterBolts.push({
+        x: bx, y: by,
+        vx: BLASTER_SPEED * dir,
+        color: boltColor,
+        glow: boltGlow,
+        owner: fighter,
+        life: 2, // seconds before despawn
+    });
+}
+
+function updateBlasterBolts(dt) {
+    for (let i = blasterBolts.length - 1; i >= 0; i--) {
+        const b = blasterBolts[i];
+        b.x += b.vx * dt;
+        b.life -= dt;
+
+        // Off screen or expired
+        if (b.x < -10 || b.x > W + 10 || b.life <= 0) {
+            blasterBolts.splice(i, 1);
+            continue;
+        }
+
+        // Check hit against the OTHER fighter
+        const target = b.owner === player ? enemy : player;
+        if (b.x > target.x && b.x < target.x + FIGHTER_W &&
+            b.y > target.y && b.y < target.y + FIGHTER_H) {
+
+            if (target.state === 'blocking') {
+                // Blocked — deflect the bolt
+                b.vx = -b.vx * 0.8;
+                b.owner = target; // now it can hit the original shooter
+                spawnParticles(b.x, b.y, 4, '#ffff44', '#ffaa00');
+                sfxBlock();
+            } else {
+                // Hit!
+                target.hp = Math.max(0, target.hp - BLASTER_DAMAGE);
+                target.state = 'hit';
+                target.stateTimer = HIT_STUN;
+                spawnParticles(b.x, b.y, 6, b.color, '#ffffff');
+                screenShake = 0.1;
+                sfxHit();
+                blasterBolts.splice(i, 1);
+            }
+        }
+    }
+}
+
+function drawBlasterBolts() {
+    for (const b of blasterBolts) {
+        ctx.save();
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = b.glow;
+        ctx.fillStyle = b.color;
+        // Elongated bolt shape
+        const len = 8;
+        const h = 2;
+        const dir = b.vx > 0 ? 1 : -1;
+        ctx.fillRect(b.x - (dir === 1 ? len : 0), b.y, len, h);
+        // Bright core
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(b.x - (dir === 1 ? len / 2 : -len / 2 + 2), b.y, len / 2, h);
+        ctx.restore();
+    }
+}
+
+function tryNuke(fighter, target) {
+    if (!nukeAvailable || nukeActive || nukeBolt) return;
+    if (fighter.state === 'hit' || fighter.state === 'ko') return;
+
+    nukeAvailable = false;
+    sfxNukeLaunch();
+
+    // Launch a slow glowing projectile toward the enemy
+    const dir = fighter.facing;
+    nukeBolt = {
+        x: fighter.x + (dir === 1 ? FIGHTER_W : 0),
+        y: fighter.y + FIGHTER_H / 2,
+        vx: 200 * dir,
+        target: target,
+    };
+}
+
+function updateNuke(dt) {
+    // Update traveling nuke bolt
+    if (nukeBolt) {
+        nukeBolt.x += nukeBolt.vx * dt;
+
+        // Trail particles
+        spawnParticles(nukeBolt.x, nukeBolt.y, 1, '#4466ff', '#2244cc');
+
+        // Check if it hits the target
+        const t = nukeBolt.target;
+        if (nukeBolt.x > t.x && nukeBolt.x < t.x + FIGHTER_W &&
+            nukeBolt.y > t.y && nukeBolt.y < t.y + FIGHTER_H) {
+            // BOOM — explode at target position
+            nukeX = t.x + FIGHTER_W / 2;
+            nukeY = t.y + FIGHTER_H / 2;
+            nukeActive = true;
+            nukeTimer = 0;
+            nukeBolt = null;
+            sfxNukeExplode();
+
+            // Deal half of target's current HP
+            const dmg = Math.ceil(t.hp / 2);
+            t.hp = Math.max(1, t.hp - dmg);
+            t.state = 'hit';
+            t.stateTimer = 0.5;
+            screenShake = 0.5;
+
+            // Massive particle explosion
+            for (let i = 0; i < 40; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 30 + Math.random() * 200;
+                const colors = ['#4488ff', '#66aaff', '#2244cc', '#88ccff', '#ffffff'];
+                particles.push({
+                    x: nukeX, y: nukeY,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed - 30,
+                    life: 0.5 + Math.random() * 0.8,
+                    maxLife: 0.5 + Math.random() * 0.8,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    size: 1 + Math.random() * 3,
+                });
+            }
+        }
+
+        // Off screen — explode harmlessly
+        if (nukeBolt && (nukeBolt.x < -20 || nukeBolt.x > W + 20)) {
+            nukeBolt = null;
+        }
+    }
+
+    // Update explosion animation
+    if (nukeActive) {
+        nukeTimer += dt;
+        if (nukeTimer > 1.2) {
+            nukeActive = false;
+        }
+    }
+}
+
+function drawNuke() {
+    // Draw traveling bolt
+    if (nukeBolt) {
+        ctx.save();
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#4488ff';
+        // Glowing orb
+        ctx.fillStyle = '#88bbff';
+        ctx.beginPath();
+        ctx.arc(nukeBolt.x, nukeBolt.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(nukeBolt.x, nukeBolt.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // Draw explosion
+    if (nukeActive) {
+        const progress = nukeTimer / 1.2;
+        const radius = progress < 0.3
+            ? (progress / 0.3) * 80  // expand fast
+            : 80 - (progress - 0.3) / 0.7 * 80; // shrink
+
+        ctx.save();
+        // Outer blue glow
+        ctx.globalAlpha = (1 - progress) * 0.6;
+        ctx.shadowBlur = 30;
+        ctx.shadowColor = '#4488ff';
+        ctx.fillStyle = '#2244cc';
+        ctx.beginPath();
+        ctx.arc(nukeX, nukeY, radius, 0, Math.PI * 2);
+        ctx.fill();
+        // Inner bright core
+        ctx.globalAlpha = (1 - progress) * 0.8;
+        ctx.fillStyle = '#88ccff';
+        ctx.beginPath();
+        ctx.arc(nukeX, nukeY, radius * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        // White flash center
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(nukeX, nukeY, radius * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+function tryForcePush(fighter, target) {
+    if (fighter.state === 'hit' || fighter.state === 'ko' || fighter.state === 'slashing') return;
+    if (fighter.forceCooldown > 0) return;
+
+    fighter.forceCooldown = FORCE_COOLDOWN;
+    fighter.forceTimer = FORCE_DURATION;
+    sfxForcePush();
+
+    // Push the target hard across the screen
+    const dir = fighter.x < target.x ? 1 : -1;
+    target.x += dir * FORCE_PUSH_POWER;
+    target.x = Math.max(10, Math.min(W - FIGHTER_W - 10, target.x));
+
+    // Knock them up slightly
+    if (target.grounded) {
+        target.vy = -120;
+        target.grounded = false;
+    }
+
+    // Small damage + hit stun
+    target.hp = Math.max(0, target.hp - FORCE_PUSH_DAMAGE);
+    target.state = 'hit';
+    target.stateTimer = HIT_STUN * 1.5;
+
+    // Force wave particles
+    const waveX = fighter.x + (dir === 1 ? FIGHTER_W + 5 : -5);
+    const waveY = fighter.y + FIGHTER_H / 3;
+    spawnParticles(waveX, waveY, 12, '#aaccff', '#6688cc');
+    // Impact particles on the target
+    spawnParticles(target.x + FIGHTER_W / 2, target.y + FIGHTER_H / 3, 8, '#88aadd', '#446688');
+
+    screenShake = 0.2;
+}
+
+function applyDamage(attacker, defender, baseDamage) {
+    let dmg = baseDamage;
+    const isLightningAttack = attacker.char && attacker.char.lightning;
+    if (defender.state === 'blocking') {
+        dmg = Math.floor(baseDamage * 0.2);
+        // Clash sparks — blue for lightning, yellow for saber
+        const spark1 = isLightningAttack ? '#8888ff' : '#ffff44';
+        const spark2 = isLightningAttack ? '#4444ff' : '#ffaa00';
+        spawnParticles(defender.x + (defender.facing === 1 ? 0 : FIGHTER_W), defender.y + 10, 6, spark1, spark2);
+        screenShake = 0.08;
+        sfxBlock();
+    } else {
+        // Hit particles — blue for lightning, orange for saber
+        const hitX = defender.x + FIGHTER_W / 2;
+        const hitY = defender.y + FIGHTER_H / 3;
+        const hit1 = isLightningAttack ? '#aaaaff' : '#ff8844';
+        const hit2 = isLightningAttack ? '#4444ff' : '#ff4400';
+        spawnParticles(hitX, hitY, 8, hit1, hit2);
+        screenShake = 0.15;
+        sfxHit();
+
+        defender.state = 'hit';
+        defender.stateTimer = HIT_STUN;
+    }
+
+    // Knockback
+    const dir = attacker.x < defender.x ? 1 : -1;
+    defender.x += dir * KNOCKBACK;
+    // Clamp to arena
+    defender.x = Math.max(10, Math.min(W - FIGHTER_W - 10, defender.x));
+
+    defender.hp = Math.max(0, defender.hp - dmg);
+}
+
+function checkAttackHit(attacker, defender) {
+    if (attacker.hitDealt) return;
+    // Only check during active frames (middle of slash animation)
+    const progress = 1 - (attacker.stateTimer / ATTACK_DURATION);
+    if (progress < 0.1 || progress > 0.9) return;
+
+    // Attack hitbox extends in facing direction
+    const attackX = attacker.facing === 1
+        ? attacker.x + FIGHTER_W
+        : attacker.x - ATTACK_RANGE;
+    const attackW = ATTACK_RANGE;
+    const attackY = attacker.y;
+    const attackH = FIGHTER_H;
+
+    // Defender hitbox
+    const defX = defender.x;
+    const defW = FIGHTER_W;
+    const defY = defender.y;
+    const defH = FIGHTER_H;
+
+    // AABB collision
+    if (attackX < defX + defW && attackX + attackW > defX &&
+        attackY < defY + defH && attackY + attackH > defY) {
+        const diff = getDifficulty();
+        const dmg = attacker.isPlayer ? 15 : diff.damage;
+        applyDamage(attacker, defender, dmg);
+        attacker.hitDealt = true;
+    }
+}
+
+// ============================================================
+// AI
+// ============================================================
+function updateAI(ai, target, dt) {
+    if (ai.state === 'hit' || ai.state === 'ko') return;
+
+    const diff = getDifficulty();
+    ai.aiThinkTimer -= dt;
+    if (ai.aiThinkTimer > 0) return;
+
+    const dist = Math.abs(ai.x - target.x);
+    const inRange = dist < ATTACK_RANGE + FIGHTER_W + 10;
+
+    // Face the player
+    ai.facing = ai.x < target.x ? 1 : -1;
+
+    if (inRange) {
+        // In attack range
+        if (target.state === 'slashing' && Math.random() < diff.blockChance) {
+            tryBlock(ai);
+            ai.aiThinkTimer = diff.reaction * 0.5;
+        } else if (enemyNukeAvailable && !nukeBolt && !nukeActive && target.hp > 30 && Math.random() < 0.02) {
+            // AI fires nuke — rare, saves it for when player has decent HP
+            stopBlock(ai);
+            enemyNukeAvailable = false;
+            sfxNukeLaunch();
+            const dir = ai.facing;
+            nukeBolt = {
+                x: ai.x + (dir === 1 ? FIGHTER_W : 0),
+                y: ai.y + FIGHTER_H / 2,
+                vx: 200 * dir,
+                target: target,
+            };
+            ai.aiThinkTimer = diff.reaction * 3;
+        } else if (ai.forceCooldown <= 0 && Math.random() < 0.08) {
+            // Occasionally Force Push
+            stopBlock(ai);
+            tryForcePush(ai, target);
+            ai.aiThinkTimer = diff.reaction * 2;
+        } else if (Math.random() < diff.attackChance) {
+            stopBlock(ai);
+            trySlash(ai);
+            ai.aiThinkTimer = diff.reaction;
+        } else if (Math.random() < 0.3) {
+            // Retreat
+            ai.vx = -ai.facing * MOVE_SPEED;
+            ai.aiThinkTimer = diff.reaction * 0.5;
+        } else {
+            stopBlock(ai);
+            ai.vx = 0;
+            ai.aiThinkTimer = diff.reaction * 0.3;
+        }
+    } else {
+        // Approach
+        stopBlock(ai);
+        ai.vx = ai.facing * MOVE_SPEED;
+        // Jump to reach platforms or close vertical distance
+        const yDiff = ai.y - target.y;
+        if (yDiff > 20 && Math.random() < 0.3) {
+            // Target is above us — jump to reach them
+            tryJump(ai);
+        } else if (Math.random() < 0.12) {
+            tryJump(ai);
+        }
+        ai.aiThinkTimer = diff.reaction * 0.3;
+    }
+}
+
+// ============================================================
+// PARTICLES
+// ============================================================
+function spawnParticles(x, y, count, color1, color2) {
+    for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 50 + Math.random() * 150;
+        particles.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 50,
+            life: 0.3 + Math.random() * 0.3,
+            maxLife: 0.3 + Math.random() * 0.3,
+            color: Math.random() > 0.5 ? color1 : color2,
+            size: 1 + Math.random() * 2,
+        });
+    }
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 200 * dt; // gravity on particles
+        p.life -= dt;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+}
+
+function drawParticles() {
+    for (const p of particles) {
+        const alpha = Math.max(0, p.life / p.maxLife);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.floor(p.x), Math.floor(p.y), Math.ceil(p.size), Math.ceil(p.size));
+    }
+    ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// UPDATE FIGHTER
+// ============================================================
+function updateFighter(f, dt) {
+    // Timers
+    if (f.attackCooldown > 0) f.attackCooldown -= dt;
+    if (f.blockCooldown > 0) f.blockCooldown -= dt;
+    if (f.forceCooldown > 0) f.forceCooldown -= dt;
+    if (f.forceTimer > 0) f.forceTimer -= dt;
+    if (f.shootCooldown > 0) f.shootCooldown -= dt;
+
+    // State timers
+    if (f.state === 'slashing') {
+        f.stateTimer -= dt;
+        if (f.stateTimer <= 0) {
+            f.state = 'idle';
+            f.attackCooldown = ATTACK_COOLDOWN;
+        }
+    }
+    if (f.state === 'hit') {
+        f.stateTimer -= dt;
+        if (f.stateTimer <= 0) {
+            f.state = f.hp <= 0 ? 'ko' : 'idle';
+        }
+    }
+    if (f.state === 'blocking') {
+        f.blockTime += dt;
+        if (f.blockTime >= BLOCK_MAX) {
+            stopBlock(f);
+            f.blockCooldown = BLOCK_COOLDOWN;
+        }
+    }
+
+    // Movement (only when idle or walking)
+    if (f.state === 'idle' || f.state === 'walking' || f.state === 'jumping') {
+        f.x += f.vx * dt;
+    }
+
+    // Gravity + platform collision
+    if (!f.grounded) {
+        f.vy += GRAVITY * dt;
+        const prevY = f.y;
+        f.y += f.vy * dt;
+
+        // Check ground
+        if (f.y >= GROUND_Y) {
+            f.y = GROUND_Y;
+            f.vy = 0;
+            f.grounded = true;
+            f.hasDoubleJumped = false;
+            if (f.state === 'jumping') f.state = 'idle';
+        }
+
+        // Check platforms (only when falling down)
+        if (f.vy > 0) {
+            for (const p of PLATFORMS) {
+                const fRight = f.x + FIGHTER_W;
+                const fLeft = f.x;
+                const feetY = f.y + FIGHTER_H;
+                const prevFeetY = prevY + FIGHTER_H;
+                // Landing: feet cross the platform top, horizontally overlapping
+                if (fRight > p.x + 4 && fLeft < p.x + p.w - 4 &&
+                    prevFeetY <= p.y && feetY >= p.y) {
+                    f.y = p.y - FIGHTER_H;
+                    f.vy = 0;
+                    f.grounded = true;
+                    if (f.state === 'jumping') f.state = 'idle';
+                    break;
+                }
+            }
+        }
+    } else if (f.y < GROUND_Y) {
+        // Check if fighter walked off a platform
+        let onPlatform = false;
+        for (const p of PLATFORMS) {
+            const fRight = f.x + FIGHTER_W;
+            const fLeft = f.x;
+            const feetY = f.y + FIGHTER_H;
+            if (fRight > p.x + 4 && fLeft < p.x + p.w - 4 &&
+                Math.abs(feetY - p.y) < 3) {
+                onPlatform = true;
+                break;
+            }
+        }
+        if (!onPlatform) {
+            f.grounded = false;
+            // Don't change state — let gravity take over naturally
+        }
+    }
+
+    // Wall collision — can't walk through, must jump over
+    for (const wall of WALLS) {
+        const fRight = f.x + FIGHTER_W;
+        const fBottom = f.y + FIGHTER_H;
+        // Only block if fighter's feet are below the wall top (not jumping over)
+        if (fBottom > wall.y + 4 && f.y < wall.y + wall.h) {
+            // Coming from the left
+            if (fRight > wall.x && f.x < wall.x && fRight < wall.x + wall.w) {
+                f.x = wall.x - FIGHTER_W;
+            }
+            // Coming from the right
+            if (f.x < wall.x + wall.w && fRight > wall.x + wall.w && f.x > wall.x) {
+                f.x = wall.x + wall.w;
+            }
+        }
+    }
+
+    // Arena bounds
+    f.x = Math.max(10, Math.min(W - FIGHTER_W - 10, f.x));
+
+    // Smooth HP display
+    const hpSpeed = 80 * dt;
+    if (f.displayHp > f.hp) f.displayHp = Math.max(f.hp, f.displayHp - hpSpeed);
+    if (f.displayHp < f.hp) f.displayHp = Math.min(f.hp, f.displayHp + hpSpeed);
+}
+
+// ============================================================
+// PLAYER INPUT
+// ============================================================
+function handlePlayerInput(p) {
+    if (p.state === 'hit' || p.state === 'ko' || p.state === 'slashing') {
+        p.vx = 0;
+        return;
+    }
+
+    // Movement
+    p.vx = 0;
+    if (p.state !== 'blocking') {
+        if (pressedLeft()) p.vx = -MOVE_SPEED;
+        if (pressedRight()) p.vx = MOVE_SPEED;
+    }
+
+    // Face opponent
+    if (enemy) {
+        p.facing = p.x < enemy.x ? 1 : -1;
+    }
+
+    // Actions
+    if (pressedGunToggle()) toggleGun(p);
+    if (p.gunDrawn) {
+        // Gun mode — shoot instead of slash, can't block with saber
+        if (pressedShoot()) tryShoot(p);
+        stopBlock(p);
+    } else {
+        // Saber mode
+        if (pressedSlash()) trySlash(p);
+        if (pressedBlock()) {
+            tryBlock(p);
+        } else {
+            stopBlock(p);
+        }
+    }
+    if (pressedJump()) tryJump(p);
+    if (pressedForce()) tryForcePush(p, enemy);
+    if (pressedNuke()) tryNuke(p, enemy);
+
+    // Update walk state
+    if (p.state === 'idle' && p.vx !== 0) p.state = 'walking';
+    if (p.state === 'walking' && p.vx === 0) p.state = 'idle';
+}
+
+// ============================================================
+// DRAW FIGHTER
+// ============================================================
+function drawFighter(f) {
+    const sprites = getFighterSprites(f);
+    const saberCol = getSaberColor(f);
+    let spriteName = 'idle';
+
+    if (f.state === 'slashing') spriteName = 'slash';
+    else if (f.state === 'blocking') spriteName = 'block';
+    else if (f.state === 'jumping') spriteName = 'jump';
+    else if (f.state === 'hit') spriteName = 'hit';
+    else if (f.state === 'ko') spriteName = 'ko';
+
+    const sprite = sprites[spriteName];
+    const flip = f.facing === -1;
+
+    const useImageSprite = false; // image sprites disabled — using pixel art
+
+    // Draw weapon effects (saber glow or lightning)
+    const isDoubleBlade = f.char && f.char.doubleBlade;
+    const isLightning = f.char && f.char.lightning;
+    const isFourSabers = f.char && f.char.fourSabers;
+    const isCrossguard = f.char && f.char.crossguard;
+
+    if (spriteName === 'slash' || spriteName === 'block' || spriteName === 'idle') {
+        ctx.save();
+
+        if (isLightning) {
+            // === FORCE LIGHTNING ===
+            if (spriteName === 'slash') {
+                // Draw 3 jagged lightning bolts from hands forward
+                const handX = flip ? f.x + 2 : f.x + FIGHTER_W - 2;
+                const handY = f.y + 14;
+                const dir = flip ? -1 : 1;
+                const boltLen = 55;
+
+                for (let b = 0; b < 3; b++) {
+                    ctx.shadowBlur = 8;
+                    ctx.shadowColor = '#4444ff';
+                    ctx.strokeStyle = b === 1 ? '#ffffff' : '#8888ff';
+                    ctx.lineWidth = b === 1 ? 2 : 1;
+                    ctx.beginPath();
+                    let bx = handX;
+                    let by = handY + (b - 1) * 4;
+                    ctx.moveTo(bx, by);
+                    const segments = 6;
+                    for (let s = 0; s < segments; s++) {
+                        bx += (boltLen / segments) * dir;
+                        by += (Math.random() - 0.5) * 8;
+                        ctx.lineTo(bx, by);
+                    }
+                    ctx.stroke();
+                }
+
+                // Small sparks at the tip
+                ctx.shadowBlur = 4;
+                const tipX = handX + boltLen * dir;
+                for (let s = 0; s < 4; s++) {
+                    ctx.strokeStyle = Math.random() > 0.5 ? '#aaaaff' : '#ffffff';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(tipX, handY);
+                    ctx.lineTo(
+                        tipX + (Math.random() - 0.5) * 10,
+                        handY + (Math.random() - 0.5) * 12
+                    );
+                    ctx.stroke();
+                }
+            }
+            // Block = just hands up, no visual effect (the Force absorbs it)
+            // We draw a subtle force shield shimmer
+            if (spriteName === 'block') {
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#4444ff';
+                ctx.strokeStyle = 'rgba(100,100,255,0.3)';
+                ctx.lineWidth = 2;
+                const shieldX = flip ? f.x - 2 : f.x + FIGHTER_W + 2;
+                const shieldY = f.y + 5;
+                ctx.beginPath();
+                ctx.arc(shieldX, shieldY + 10, 15, -Math.PI * 0.6, Math.PI * 0.6);
+                ctx.stroke();
+            }
+        } else {
+            // === LIGHTSABER ===
+            if (isFourSabers && spriteName === 'slash') {
+                // Grievous: 4 sabers fanned out during slash
+                const baseX = flip ? f.x - 5 : f.x + FIGHTER_W - 5;
+                const baseY = f.y + 8;
+                const angles = [-0.3, -0.1, 0.1, 0.3]; // fan spread
+                for (let i = 0; i < 4; i++) {
+                    const sc = getSaberColor(f, i);
+                    const angle = angles[i];
+                    const len = 22;
+                    const dir = flip ? -1 : 1;
+                    const ex = baseX + Math.cos(angle) * len * dir;
+                    const ey = baseY + Math.sin(angle) * len;
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = sc.glow;
+                    ctx.strokeStyle = sc.color;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(baseX, baseY + angle * 15);
+                    ctx.lineTo(ex, ey);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(baseX, baseY + angle * 15);
+                    ctx.lineTo(ex, ey);
+                    ctx.stroke();
+                }
+            } else if (isFourSabers && spriteName === 'block') {
+                // Grievous: 4 sabers crossed in X guard
+                const cx = flip ? f.x + 8 : f.x + FIGHTER_W - 12;
+                const cy = f.y - 2;
+                const positions = [[-8,-12,8,12],[-8,12,8,-12],[-4,-14,4,10],[-4,14,4,-10]];
+                for (let i = 0; i < 4; i++) {
+                    const sc = getSaberColor(f, i);
+                    const p = positions[i];
+                    ctx.shadowBlur = 8;
+                    ctx.shadowColor = sc.glow;
+                    ctx.strokeStyle = sc.color;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(cx + p[0], cy + p[1]);
+                    ctx.lineTo(cx + p[2], cy + p[3]);
+                    ctx.stroke();
+                }
+            } else if (isFourSabers && spriteName === 'idle') {
+                // Grievous: 4 sabers held at sides
+                const baseX = flip ? f.x + 8 : f.x + FIGHTER_W - 8;
+                const baseY = f.y + 14;
+                const offsets = [[-10,18],[-6,20],[6,20],[10,18]];
+                for (let i = 0; i < 4; i++) {
+                    const sc = getSaberColor(f, i);
+                    const dir = flip ? -1 : 1;
+                    ctx.shadowBlur = 8;
+                    ctx.shadowColor = sc.glow;
+                    ctx.strokeStyle = sc.color;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(baseX, baseY);
+                    ctx.lineTo(baseX + offsets[i][0] * dir, baseY + offsets[i][1]);
+                    ctx.stroke();
+                }
+            } else {
+                // Normal saber (1 blade)
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = saberCol.glow;
+
+                if (spriteName === 'slash') {
+                    const sx = flip ? f.x - 20 : f.x + FIGHTER_W - 5;
+                    const sy = f.y + 14;
+                    ctx.strokeStyle = saberCol.color;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy);
+                    ctx.lineTo(sx + (flip ? -35 : 35), sy);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy);
+                    ctx.lineTo(sx + (flip ? -35 : 35), sy);
+                    ctx.stroke();
+
+                    // Double blade
+                    if (isDoubleBlade) {
+                        ctx.shadowBlur = 6;
+                        ctx.shadowColor = saberCol.glow;
+                        ctx.strokeStyle = saberCol.color;
+                        ctx.globalAlpha = 0.5;
+                        ctx.lineWidth = 2;
+                        const bx = flip ? f.x + FIGHTER_W + 5 : f.x - 5;
+                        ctx.beginPath();
+                        ctx.moveTo(bx, sy);
+                        ctx.lineTo(bx + (flip ? 18 : -18), sy);
+                        ctx.stroke();
+                        ctx.globalAlpha = 1;
+                    }
+
+                    // Kylo crossguard — small side vents
+                    if (isCrossguard) {
+                        const hiltX = flip ? f.x + FIGHTER_W - 8 : f.x + FIGHTER_W - 8;
+                        const hiltX2 = flip ? f.x + 2 : f.x + FIGHTER_W - 2;
+                        ctx.shadowBlur = 6;
+                        ctx.shadowColor = saberCol.glow;
+                        ctx.strokeStyle = saberCol.color;
+                        ctx.lineWidth = 2;
+                        // Top vent
+                        ctx.beginPath();
+                        ctx.moveTo(hiltX2, sy);
+                        ctx.lineTo(hiltX2, sy - 8);
+                        ctx.stroke();
+                        // Bottom vent
+                        ctx.beginPath();
+                        ctx.moveTo(hiltX2, sy);
+                        ctx.lineTo(hiltX2, sy + 8);
+                        ctx.stroke();
+                    }
+                } else if (spriteName === 'block') {
+                    const sx = flip ? f.x + 8 : f.x + FIGHTER_W - 12;
+                    const sy = f.y - 14;
+                    ctx.strokeStyle = saberCol.color;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy);
+                    ctx.lineTo(sx, sy + 32);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy);
+                    ctx.lineTo(sx, sy + 32);
+                    ctx.stroke();
+
+                    // Double blade
+                    if (isDoubleBlade) {
+                        ctx.shadowBlur = 6;
+                        ctx.shadowColor = saberCol.glow;
+                        ctx.strokeStyle = saberCol.color;
+                        ctx.globalAlpha = 0.5;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(sx, sy + 30);
+                        ctx.lineTo(sx, sy + 48);
+                        ctx.stroke();
+                        ctx.globalAlpha = 1;
+                    }
+
+                    // Kylo crossguard
+                    if (isCrossguard) {
+                        ctx.shadowBlur = 6;
+                        ctx.shadowColor = saberCol.glow;
+                        ctx.strokeStyle = saberCol.color;
+                        ctx.lineWidth = 2;
+                        const hy = sy + 20;
+                        ctx.beginPath();
+                        ctx.moveTo(sx, hy);
+                        ctx.lineTo(sx - 6, hy);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(sx, hy);
+                        ctx.lineTo(sx + 6, hy);
+                        ctx.stroke();
+                    }
+                } else if (spriteName === 'idle') {
+                    // Idle saber — held upward from the hand in a ready stance
+                    // Hand is at the P pixel in the sprite (column ~6, row ~4)
+                    const handOffsetX = flip ? -4 : FIGHTER_W - 4;
+                    const handOffsetY = 16;
+                    const hx = f.x + handOffsetX;
+                    const hy = f.y + handOffsetY;
+                    // Blade angles upward and slightly forward
+                    const bladeLen = 28;
+                    const tipX = hx + (flip ? -10 : 10);
+                    const tipY = hy - bladeLen;
+
+                    // Hilt (small, at hand)
+                    const hiltAngle = Math.atan2(tipY - hy, tipX - hx);
+                    ctx.save();
+                    ctx.translate(hx, hy);
+                    ctx.rotate(hiltAngle);
+                    ctx.fillStyle = '#888888';
+                    ctx.fillRect(-6, -2, 8, 4);
+                    ctx.fillStyle = '#666666';
+                    ctx.fillRect(-5, -2.5, 2, 5);
+                    ctx.fillRect(-1, -2.5, 2, 5);
+                    ctx.restore();
+
+                    // Blade glow
+                    ctx.shadowBlur = 12;
+                    ctx.shadowColor = saberCol.glow;
+                    ctx.strokeStyle = saberCol.color;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(hx, hy);
+                    ctx.lineTo(tipX, tipY);
+                    ctx.stroke();
+                    // White core
+                    ctx.shadowBlur = 0;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(hx, hy);
+                    ctx.lineTo(tipX, tipY);
+                    ctx.stroke();
+                }
+            }
+        }
+        ctx.restore();
+    }
+
+    // Draw sprite with animation offsets
+    let bobY = 0;
+    if (f.state === 'idle' && f.grounded) {
+        bobY = Math.sin(gameTime * 2.5 + (f.isPlayer ? 0 : Math.PI)) > 0.3 ? -1 : 0;
+    } else if (f.state === 'walking') {
+        bobY = Math.sin(gameTime * 10) > 0 ? -1 : 1;
+    }
+
+    if (useImageSprite) {
+        const img = VADER_IMAGES[spriteName];
+        const imgW = 64;
+        const imgH = 80;
+        const drawX = f.x + FIGHTER_W / 2;
+        const drawY = f.y + FIGHTER_H + bobY;
+        ctx.save();
+        ctx.translate(drawX, drawY);
+        // Sprite source faces right — flip when facing left
+        if (!flip) ctx.scale(-1, 1);
+        ctx.drawImage(img, -imgW / 2, -imgH, imgW, imgH);
+        ctx.restore();
+    } else {
+        const spriteX = f.x - (sprite.w * SPRITE_SCALE - FIGHTER_W) / 2;
+        const spriteY = f.y + FIGHTER_H - sprite.h * SPRITE_SCALE + bobY;
+        const origSaber = f.char ? f.char.colors.S : null;
+        drawSprite(sprite, Math.floor(spriteX), Math.floor(spriteY), SPRITE_SCALE, flip, saberCol.color, origSaber);
+    }
+
+    // Blaster gun when drawn
+    if (f.gunDrawn && f.state !== 'ko') {
+        const gx = flip ? f.x + 2 : f.x + FIGHTER_W - 6;
+        const gy = f.y + FIGHTER_H / 2 - 4;
+        const dir = flip ? -1 : 1;
+        // Gun body
+        ctx.fillStyle = '#666666';
+        ctx.fillRect(gx, gy, 4, 4);
+        // Barrel
+        ctx.fillStyle = '#888888';
+        ctx.fillRect(gx + (flip ? -6 : 4), gy + 1, 6, 2);
+        // Muzzle tip
+        ctx.fillStyle = '#aaaaaa';
+        ctx.fillRect(gx + (flip ? -7 : 9), gy + 1, 1, 2);
+    }
+
+    // Force Push wave effect
+    if (f.forceTimer > 0) {
+        const progress = 1 - (f.forceTimer / FORCE_DURATION);
+        const waveR = 10 + progress * 40;
+        const dir = f.facing;
+        const waveX = f.x + (dir === 1 ? FIGHTER_W + 5 + progress * 30 : -5 - progress * 30);
+        const waveY = f.y + FIGHTER_H / 2;
+        ctx.save();
+        ctx.globalAlpha = 0.6 * (1 - progress);
+        ctx.strokeStyle = '#88bbff';
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#4488ff';
+        // Draw expanding arc in the push direction
+        const startAngle = dir === 1 ? -Math.PI / 2 : Math.PI / 2;
+        const endAngle = dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+        ctx.beginPath();
+        ctx.arc(waveX, waveY, waveR, startAngle, endAngle);
+        ctx.stroke();
+        // Inner brighter arc
+        ctx.strokeStyle = '#bbddff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(waveX, waveY, waveR * 0.6, startAngle, endAngle);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // Force cooldown indicator (small bar under character)
+    if (f.isPlayer && f.forceCooldown > 0) {
+        const barW = FIGHTER_W;
+        const barH = 2;
+        const barX = f.x;
+        const barY = f.y + FIGHTER_H + 4;
+        const ratio = 1 - (f.forceCooldown / FORCE_COOLDOWN);
+        ctx.fillStyle = '#333';
+        ctx.fillRect(barX, barY, barW, barH);
+        ctx.fillStyle = '#6688cc';
+        ctx.fillRect(barX, barY, barW * ratio, barH);
+    }
+}
+
+// ============================================================
+// HUD
+// ============================================================
+function drawHealthBar(x, y, w, h, hp, maxHp, displayHp, label, align) {
+    // Background
+    ctx.fillStyle = COLORS.hpBg;
+    ctx.fillRect(x, y, w, h);
+
+    // Display HP bar (delayed drain)
+    const displayRatio = displayHp / maxHp;
+    const displayW = Math.floor(w * displayRatio);
+    ctx.fillStyle = '#882222';
+    if (align === 'right') {
+        ctx.fillRect(x + w - displayW, y, displayW, h);
+    } else {
+        ctx.fillRect(x, y, displayW, h);
+    }
+
+    // Current HP bar
+    const ratio = hp / maxHp;
+    const barW = Math.floor(w * ratio);
+    const color = ratio > 0.6 ? COLORS.hpGreen : ratio > 0.3 ? COLORS.hpYellow : COLORS.hpRed;
+    ctx.fillStyle = color;
+    if (align === 'right') {
+        ctx.fillRect(x + w - barW, y, barW, h);
+    } else {
+        ctx.fillRect(x, y, barW, h);
+    }
+
+    // Border
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+
+    // Label
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px monospace';
+    ctx.textAlign = align === 'right' ? 'right' : 'left';
+    const labelX = align === 'right' ? x + w - 4 : x + 4;
+    ctx.fillText(label, labelX, y - 3);
+}
+
+function drawHUD() {
+    const barW = 160;
+    const barH = 10;
+    const barY = 18;
+    const margin = 20;
+
+    // Player HP (left)
+    const pLabel = player.char ? player.char.shortName : (player.side === 'light' ? 'LIGHT' : 'DARK');
+    drawHealthBar(margin, barY, barW, barH, player.hp, player.maxHp, player.displayHp, pLabel, 'left');
+
+    // Enemy HP (right)
+    const eLabel = enemy.char ? enemy.char.shortName : (enemy.side === 'light' ? 'LIGHT' : 'DARK');
+    drawHealthBar(W - margin - barW, barY, barW, barH, enemy.hp, enemy.maxHp, enemy.displayHp, eLabel, 'right');
+
+    // Level indicator
+    const diff = getDifficulty();
+    ctx.fillStyle = '#888';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    const layout = LEVEL_LAYOUTS[Math.min(currentLevel - 1, LEVEL_LAYOUTS.length - 1)];
+    ctx.fillText(`LEVEL ${currentLevel}: ${layout.name}`, W / 2, barY + barH / 2 + 3);
+
+    // Nuke indicator
+    if (nukeAvailable) {
+        ctx.save();
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#4488ff';
+        ctx.fillStyle = '#4488ff';
+        ctx.font = 'bold 8px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('[H] NUKE READY', margin, barY + barH + 14);
+        ctx.restore();
+    } else if (!nukeActive) {
+        ctx.fillStyle = '#333';
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('[H] NUKE USED', margin, barY + barH + 14);
+    }
+}
+
+// ============================================================
+// BACKGROUND
+// ============================================================
+const stars = [];
+for (let i = 0; i < 80; i++) {
+    stars.push({
+        x: Math.random() * W,
+        y: Math.random() * (H - 60),
+        size: Math.random() > 0.8 ? 2 : 1,
+        brightness: 0.3 + Math.random() * 0.7,
+    });
+}
+
+// TIE Fighter squads
+const tieSquads = [];
+let tieSpawnTimer = 0;
+
+function spawnTieSquad() {
+    const fromLeft = Math.random() > 0.5;
+    const baseY = 30 + Math.random() * (GROUND_Y - 60);
+    const speed = 80 + Math.random() * 60;
+    const dir = fromLeft ? 1 : -1;
+    const startX = fromLeft ? -40 : W + 40;
+    // 3 TIE fighters in a V formation
+    tieSquads.push(
+        { x: startX, y: baseY, vx: speed * dir },
+        { x: startX - 18 * dir, y: baseY - 10, vx: speed * dir },
+        { x: startX - 18 * dir, y: baseY + 10, vx: speed * dir },
+    );
+}
+
+function updateTies(dt) {
+    tieSpawnTimer -= dt;
+    if (tieSpawnTimer <= 0) {
+        spawnTieSquad();
+        tieSpawnTimer = 4 + Math.random() * 6; // every 4-10 seconds
+    }
+    for (let i = tieSquads.length - 1; i >= 0; i--) {
+        tieSquads[i].x += tieSquads[i].vx * dt;
+        if (tieSquads[i].x < -60 || tieSquads[i].x > W + 60) {
+            tieSquads.splice(i, 1);
+        }
+    }
+}
+
+function drawTie(x, y, flip) {
+    // Tiny pixel art TIE fighter (~7x7 pixels, drawn at 1:1)
+    const s = 1; // pixel scale
+    const fx = Math.floor(x);
+    const fy = Math.floor(y);
+
+    // Wings (vertical hexagonal panels)
+    ctx.fillStyle = '#667';
+    ctx.fillRect(fx - 3 * s, fy - 3 * s, s, 7 * s); // left wing
+    ctx.fillRect(fx + 3 * s, fy - 3 * s, s, 7 * s); // right wing
+
+    // Wing struts
+    ctx.fillStyle = '#556';
+    ctx.fillRect(fx - 2 * s, fy - 2 * s, s, 5 * s);
+    ctx.fillRect(fx + 2 * s, fy - 2 * s, s, 5 * s);
+
+    // Cockpit (center ball)
+    ctx.fillStyle = '#888';
+    ctx.fillRect(fx - s, fy - s, 3 * s, 3 * s);
+    // Window
+    ctx.fillStyle = '#446';
+    ctx.fillRect(fx, fy, s, s);
+
+    // Strut connections
+    ctx.fillStyle = '#778';
+    ctx.fillRect(fx - 2 * s, fy, s, s);
+    ctx.fillRect(fx + 2 * s, fy, s, s);
+}
+
+function getCurrentBg() {
+    if (gameState === 'fighting' || gameState === 'countdown' || gameState === 'versus' ||
+        gameState === 'win' || gameState === 'lose') {
+        const layout = LEVEL_LAYOUTS[Math.min(currentLevel - 1, LEVEL_LAYOUTS.length - 1)];
+        return layout.bg;
+    }
+    return 'deathstar';
+}
+
+function drawStarsAndSky(skyColor) {
+    ctx.fillStyle = skyColor || COLORS.sky;
+    ctx.fillRect(0, 0, W, H);
+    for (const s of stars) {
+        ctx.globalAlpha = s.brightness;
+        ctx.fillStyle = COLORS.star;
+        ctx.fillRect(s.x, s.y, s.size, s.size);
+    }
+    ctx.globalAlpha = 1;
+}
+
+function drawDeathStar() {
+    const dsX = W - 80;
+    const dsY = 50;
+    const dsR = 55;
+
+    // Main body — slight gradient effect (lighter top-left)
+    ctx.fillStyle = '#555555';
+    ctx.beginPath();
+    ctx.arc(dsX, dsY, dsR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Clip all surface detail to the sphere
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(dsX, dsY, dsR - 1, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Latitude lines — straight horizontal bands that span the sphere
+    // These are the horizontal "trenches" that ring the Death Star
+    ctx.strokeStyle = '#4a4a4a';
+    ctx.lineWidth = 1;
+    for (let i = -4; i <= 4; i++) {
+        if (i === 0) continue;
+        const ly = dsY + i * 11;
+        const dx = Math.sqrt(Math.max(0, dsR * dsR - (ly - dsY) * (ly - dsY)));
+        if (dx > 2) {
+            ctx.beginPath();
+            ctx.moveTo(dsX - dx, ly);
+            ctx.lineTo(dsX + dx, ly);
+            ctx.stroke();
+        }
+    }
+
+    // Equator trench — the big horizontal band
+    ctx.strokeStyle = '#383838';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(dsX - dsR, dsY);
+    ctx.lineTo(dsX + dsR, dsY);
+    ctx.stroke();
+
+    // Longitude lines — these CURVE like a globe
+    // Use arcs: at the center they're straight (very large radius arc),
+    // toward the edges they curve more tightly
+    ctx.strokeStyle = '#4a4a4a';
+    ctx.lineWidth = 1;
+    const longCount = 7; // longitude lines
+    for (let i = 0; i < longCount; i++) {
+        // Position on sphere surface: -1 to 1 across the visible face
+        const t = (i + 1) / (longCount + 1) * 2 - 1; // -1 to 1
+        // X offset on sphere
+        const surfaceX = t * dsR * 0.85;
+        // How much this line curves: at center (t=0) it's nearly straight,
+        // at edges it curves sharply
+        const curvature = t; // negative = curves left, positive = curves right
+        // Draw the curved line using a quadratic bezier
+        const topY = dsY - Math.sqrt(Math.max(0, dsR * dsR - surfaceX * surfaceX));
+        const botY = dsY + Math.sqrt(Math.max(0, dsR * dsR - surfaceX * surfaceX));
+        // Control point: offset horizontally by curvature factor
+        const cpX = dsX + surfaceX + curvature * dsR * 0.4;
+        ctx.beginPath();
+        ctx.moveTo(dsX + surfaceX, topY + 2);
+        ctx.quadraticCurveTo(cpX, dsY, dsX + surfaceX, botY - 2);
+        ctx.stroke();
+    }
+
+    ctx.restore(); // remove clip
+
+    // Superlaser dish — positioned in upper-left quadrant of the sphere
+    const dishX = dsX - dsR * 0.28;
+    const dishY = dsY - dsR * 0.32;
+    ctx.fillStyle = '#3a3a3a';
+    ctx.beginPath();
+    ctx.arc(dishX, dishY, 13, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2a2a2a';
+    ctx.beginPath();
+    ctx.arc(dishX, dishY, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#4a6a4a';
+    ctx.beginPath();
+    ctx.arc(dishX, dishY, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Edge highlight
+    ctx.strokeStyle = '#666666';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(dsX, dsY, dsR, 0, Math.PI * 2);
+    ctx.stroke();
+
+}
+
+function drawMetalFloor(floorColor, gridColor, edgeColor) {
+    const floorY = GROUND_Y + FIGHTER_H;
+    ctx.fillStyle = floorColor || '#252530';
+    ctx.fillRect(0, floorY, W, H - floorY);
+    ctx.strokeStyle = gridColor || '#35353f';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= W; x += 24) {
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, floorY + 2);
+        ctx.lineTo(x + 0.5, H);
+        ctx.stroke();
+    }
+    for (let y = floorY + 2; y <= H; y += 12) {
+        ctx.beginPath();
+        ctx.moveTo(0, y + 0.5);
+        ctx.lineTo(W, y + 0.5);
+        ctx.stroke();
+    }
+    ctx.fillStyle = edgeColor || '#444450';
+    ctx.fillRect(0, floorY, W, 2);
+}
+
+function drawPlatformsAndWalls(platColor, platHighlight, wallColor, wallHighlight) {
+    // Platforms
+    for (const p of PLATFORMS) {
+        ctx.fillStyle = platColor || '#3a3a44';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = platHighlight || '#505060';
+        ctx.fillRect(p.x, p.y, p.w, 2);
+        ctx.fillStyle = '#252530';
+        ctx.fillRect(p.x, p.y + p.h - 1, p.w, 1);
+        ctx.strokeStyle = '#4a4a55';
+        ctx.lineWidth = 1;
+        for (let x = p.x + 12; x < p.x + p.w; x += 12) {
+            ctx.beginPath();
+            ctx.moveTo(x + 0.5, p.y + 2);
+            ctx.lineTo(x + 0.5, p.y + p.h - 1);
+            ctx.stroke();
+        }
+    }
+    // Walls
+    for (const w of WALLS) {
+        ctx.fillStyle = wallColor || '#3a3a44';
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        ctx.fillStyle = wallHighlight || '#505060';
+        ctx.fillRect(w.x, w.y, w.w, 2);
+        ctx.fillStyle = '#2a2a30';
+        ctx.fillRect(w.x + w.w - 1, w.y, 1, w.h);
+        // Panel lines
+        ctx.strokeStyle = '#4a4a55';
+        ctx.lineWidth = 1;
+        for (let y = w.y + 10; y < w.y + w.h; y += 10) {
+            ctx.beginPath();
+            ctx.moveTo(w.x + 1, y + 0.5);
+            ctx.lineTo(w.x + w.w - 1, y + 0.5);
+            ctx.stroke();
+        }
+    }
+}
+
+function drawBackground() {
+    const bg = getCurrentBg();
+
+    if (bg === 'cloudcity') {
+        // Cloud City — orange/amber sunset sky
+        ctx.fillStyle = '#1a1020';
+        ctx.fillRect(0, 0, W, H);
+        // Gradient sky — dark purple to orange at horizon
+        for (let y = 0; y < GROUND_Y; y += 2) {
+            const t = y / GROUND_Y;
+            const r = Math.floor(20 + t * 80);
+            const g = Math.floor(10 + t * 40);
+            const b = Math.floor(30 - t * 10);
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.fillRect(0, y, W, 2);
+        }
+        // Stars (dimmer)
+        for (const s of stars) {
+            if (s.y < 60) {
+                ctx.globalAlpha = s.brightness * 0.4;
+                ctx.fillStyle = COLORS.star;
+                ctx.fillRect(s.x, s.y, s.size, s.size);
+            }
+        }
+        ctx.globalAlpha = 1;
+        // Clouds
+        for (let i = 0; i < 5; i++) {
+            const cx = 40 + i * 100 + Math.sin(gameTime * 0.2 + i) * 5;
+            const cy = GROUND_Y - 30 + i * 8;
+            ctx.fillStyle = 'rgba(180,120,60,0.15)';
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, 50 + i * 10, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // City buildings in distance
+        ctx.fillStyle = '#2a1a2a';
+        for (let i = 0; i < 8; i++) {
+            const bx = 20 + i * 60;
+            const bh = 15 + (i % 3) * 10;
+            ctx.fillRect(bx, GROUND_Y + FIGHTER_H - bh - 2, 30, bh);
+            // Windows
+            ctx.fillStyle = '#ffaa44';
+            for (let wy = GROUND_Y + FIGHTER_H - bh + 3; wy < GROUND_Y + FIGHTER_H - 4; wy += 6) {
+                ctx.fillRect(bx + 4, wy, 2, 2);
+                ctx.fillRect(bx + 12, wy, 2, 2);
+                ctx.fillRect(bx + 20, wy, 2, 2);
+            }
+            ctx.fillStyle = '#2a1a2a';
+        }
+        // Floor — polished white/gray corridor
+        drawMetalFloor('#303040', '#404050', '#555565');
+        drawPlatformsAndWalls('#404055', '#606070', '#505060', '#707080');
+
+    } else if (bg === 'mustafar') {
+        // Mustafar — lava planet, dark red/black sky
+        ctx.fillStyle = '#0a0000';
+        ctx.fillRect(0, 0, W, H);
+        // Red glow from below
+        for (let y = GROUND_Y - 40; y < GROUND_Y + FIGHTER_H; y += 2) {
+            const t = (y - (GROUND_Y - 40)) / (FIGHTER_H + 40);
+            ctx.fillStyle = `rgba(180,40,0,${t * 0.15})`;
+            ctx.fillRect(0, y, W, 2);
+        }
+        // Dim stars
+        for (const s of stars) {
+            if (s.y < 80) {
+                ctx.globalAlpha = s.brightness * 0.3;
+                ctx.fillStyle = '#ff8866';
+                ctx.fillRect(s.x, s.y, s.size, s.size);
+            }
+        }
+        ctx.globalAlpha = 1;
+        // Lava rivers in the floor
+        const floorY = GROUND_Y + FIGHTER_H;
+        ctx.fillStyle = '#1a0a0a';
+        ctx.fillRect(0, floorY, W, H - floorY);
+        // Lava cracks
+        for (let i = 0; i < 6; i++) {
+            const lx = 30 + i * 80;
+            const ly = floorY + 4 + (i % 3) * 8;
+            const lw = 20 + (i % 4) * 10;
+            ctx.fillStyle = '#cc4400';
+            ctx.fillRect(lx, ly, lw, 2);
+            ctx.fillStyle = '#ff8800';
+            ctx.fillRect(lx + 2, ly, lw - 4, 1);
+            // Glow
+            ctx.fillStyle = 'rgba(255,100,0,0.1)';
+            ctx.fillRect(lx - 3, ly - 3, lw + 6, 8);
+        }
+        ctx.fillStyle = '#553020';
+        ctx.fillRect(0, floorY, W, 2);
+        // Volcanic rock platforms
+        drawPlatformsAndWalls('#3a2a1a', '#5a4a3a', '#4a3020', '#6a5040');
+
+    } else if (bg === 'endor') {
+        // Endor — forest moon, dark green/brown
+        ctx.fillStyle = '#050a05';
+        ctx.fillRect(0, 0, W, H);
+        // Stars through canopy
+        for (const s of stars) {
+            if (Math.random() > 0.5) {
+                ctx.globalAlpha = s.brightness * 0.5;
+                ctx.fillStyle = COLORS.star;
+                ctx.fillRect(s.x, s.y, s.size, s.size);
+            }
+        }
+        ctx.globalAlpha = 1;
+        // Tree trunks in background
+        ctx.fillStyle = '#2a1a0a';
+        for (let i = 0; i < 6; i++) {
+            const tx = 30 + i * 85;
+            const tw = 8 + (i % 3) * 4;
+            ctx.fillRect(tx, 20, tw, GROUND_Y + FIGHTER_H - 20);
+            // Canopy
+            ctx.fillStyle = '#1a3a0a';
+            ctx.beginPath();
+            ctx.ellipse(tx + tw / 2, 30 + i * 5, 25 + i * 3, 20, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#2a1a0a';
+        }
+        // Forest floor
+        const floorY = GROUND_Y + FIGHTER_H;
+        ctx.fillStyle = '#1a1a0a';
+        ctx.fillRect(0, floorY, W, H - floorY);
+        // Grass tufts
+        ctx.fillStyle = '#2a4a1a';
+        for (let x = 0; x < W; x += 8) {
+            const gh = 2 + Math.floor(Math.random() * 3);
+            ctx.fillRect(x, floorY - gh + 2, 3, gh);
+        }
+        ctx.fillStyle = '#3a3a1a';
+        ctx.fillRect(0, floorY, W, 2);
+        // Wooden platforms + log walls
+        drawPlatformsAndWalls('#4a3a1a', '#6a5a3a', '#3a2a0a', '#5a4a2a');
+
+    } else if (bg === 'hoth') {
+        // Hoth — white/blue ice planet
+        ctx.fillStyle = '#0a1020';
+        ctx.fillRect(0, 0, W, H);
+        // Blue-white gradient sky
+        for (let y = 0; y < GROUND_Y; y += 2) {
+            const t = y / GROUND_Y;
+            const r = Math.floor(10 + t * 50);
+            const g = Math.floor(15 + t * 60);
+            const b = Math.floor(30 + t * 70);
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.fillRect(0, y, W, 2);
+        }
+        // Snow stars
+        for (const s of stars) {
+            ctx.globalAlpha = s.brightness * 0.6;
+            ctx.fillStyle = '#ddeeff';
+            ctx.fillRect(s.x, s.y, s.size, s.size);
+        }
+        ctx.globalAlpha = 1;
+        // Snow mountains in background
+        ctx.fillStyle = '#667788';
+        ctx.beginPath();
+        ctx.moveTo(0, GROUND_Y + 56);
+        ctx.lineTo(60, GROUND_Y - 20);
+        ctx.lineTo(120, GROUND_Y + 10);
+        ctx.lineTo(180, GROUND_Y - 30);
+        ctx.lineTo(250, GROUND_Y + 5);
+        ctx.lineTo(320, GROUND_Y - 15);
+        ctx.lineTo(400, GROUND_Y + 15);
+        ctx.lineTo(W, GROUND_Y - 10);
+        ctx.lineTo(W, GROUND_Y + 56);
+        ctx.fill();
+        // Snow caps
+        ctx.fillStyle = '#aabbcc';
+        ctx.beginPath();
+        ctx.moveTo(50, GROUND_Y - 15);
+        ctx.lineTo(60, GROUND_Y - 20);
+        ctx.lineTo(70, GROUND_Y - 15);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(170, GROUND_Y - 25);
+        ctx.lineTo(180, GROUND_Y - 30);
+        ctx.lineTo(190, GROUND_Y - 25);
+        ctx.fill();
+        // Ice floor
+        const floorY = GROUND_Y + 56;
+        ctx.fillStyle = '#c0d0e0';
+        ctx.fillRect(0, floorY, W, H - floorY);
+        ctx.fillStyle = '#d0e0f0';
+        ctx.fillRect(0, floorY, W, 2);
+        // Ice cracks
+        ctx.strokeStyle = '#a0b8cc';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 5; i++) {
+            const cx = 40 + i * 100;
+            ctx.beginPath();
+            ctx.moveTo(cx, floorY + 3);
+            ctx.lineTo(cx + 15, floorY + 10);
+            ctx.lineTo(cx + 5, floorY + 18);
+            ctx.stroke();
+        }
+        drawPlatformsAndWalls('#8898a8', '#a0b0c0');
+
+    } else if (bg === 'naboo') {
+        // Naboo — elegant marble throne room, warm golden light
+        ctx.fillStyle = '#1a1410';
+        ctx.fillRect(0, 0, W, H);
+        // Warm interior glow
+        for (let y = 0; y < GROUND_Y + 56; y += 2) {
+            const t = y / (GROUND_Y + 56);
+            ctx.fillStyle = `rgba(60,40,20,${0.02 + t * 0.04})`;
+            ctx.fillRect(0, y, W, 2);
+        }
+        // Tall marble columns
+        for (let i = 0; i < 5; i++) {
+            const cx = 50 + i * 105;
+            // Column
+            ctx.fillStyle = '#554a3a';
+            ctx.fillRect(cx, 20, 12, GROUND_Y + 36);
+            // Column highlight
+            ctx.fillStyle = '#6a5a4a';
+            ctx.fillRect(cx + 2, 20, 3, GROUND_Y + 36);
+            // Capital (top)
+            ctx.fillStyle = '#6a5a48';
+            ctx.fillRect(cx - 4, 18, 20, 6);
+            // Base
+            ctx.fillStyle = '#6a5a48';
+            ctx.fillRect(cx - 3, GROUND_Y + 50, 18, 6);
+        }
+        // Arched windows with golden light
+        for (let i = 0; i < 3; i++) {
+            const wx = 100 + i * 140;
+            ctx.fillStyle = '#443820';
+            ctx.fillRect(wx, 30, 30, 50);
+            // Window glow
+            ctx.fillStyle = '#aa8844';
+            ctx.fillRect(wx + 3, 33, 24, 44);
+            ctx.fillStyle = '#ccaa55';
+            ctx.fillRect(wx + 6, 36, 18, 38);
+        }
+        // Marble floor
+        const floorY = GROUND_Y + 56;
+        ctx.fillStyle = '#3a3028';
+        ctx.fillRect(0, floorY, W, H - floorY);
+        // Floor tiles
+        ctx.strokeStyle = '#4a4038';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < W; x += 30) {
+            ctx.beginPath();
+            ctx.moveTo(x + 0.5, floorY);
+            ctx.lineTo(x + 0.5, H);
+            ctx.stroke();
+        }
+        ctx.fillStyle = '#4a4038';
+        ctx.fillRect(0, floorY, W, 2);
+        drawPlatformsAndWalls('#5a4a38', '#7a6a58');
+
+    } else if (bg === 'coruscant') {
+        // Coruscant — Jedi Temple at night, city lights below
+        ctx.fillStyle = '#06060f';
+        ctx.fillRect(0, 0, W, H);
+        // Stars
+        for (const s of stars) {
+            ctx.globalAlpha = s.brightness * 0.7;
+            ctx.fillStyle = COLORS.star;
+            ctx.fillRect(s.x, s.y, s.size, s.size);
+        }
+        ctx.globalAlpha = 1;
+        // City skyline silhouette
+        ctx.fillStyle = '#0a0a1a';
+        for (let i = 0; i < 15; i++) {
+            const bx = i * 34;
+            const bh = 20 + (i * 7 + 13) % 30;
+            ctx.fillRect(bx, GROUND_Y + 56 - bh, 30, bh);
+        }
+        // City lights (tiny dots on buildings)
+        for (let i = 0; i < 40; i++) {
+            const lx = 5 + Math.floor(i * 12.3) % W;
+            const ly = GROUND_Y + 30 + (i * 7) % 25;
+            const colors = ['#ffcc44', '#44aaff', '#ff6644', '#ffffff'];
+            ctx.fillStyle = colors[i % colors.length];
+            ctx.globalAlpha = 0.4 + Math.sin(gameTime * 2 + i) * 0.2;
+            ctx.fillRect(lx, ly, 1, 1);
+        }
+        ctx.globalAlpha = 1;
+        // Jedi Temple spire silhouette (center background)
+        ctx.fillStyle = '#12122a';
+        ctx.beginPath();
+        ctx.moveTo(W / 2 - 40, GROUND_Y + 56);
+        ctx.lineTo(W / 2 - 30, GROUND_Y - 10);
+        ctx.lineTo(W / 2 - 10, GROUND_Y - 30);
+        ctx.lineTo(W / 2, GROUND_Y - 50);
+        ctx.lineTo(W / 2 + 10, GROUND_Y - 30);
+        ctx.lineTo(W / 2 + 30, GROUND_Y - 10);
+        ctx.lineTo(W / 2 + 40, GROUND_Y + 56);
+        ctx.fill();
+        // Temple floor — polished dark stone
+        const floorY = GROUND_Y + 56;
+        ctx.fillStyle = '#151520';
+        ctx.fillRect(0, floorY, W, H - floorY);
+        ctx.strokeStyle = '#20202f';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < W; x += 20) {
+            ctx.beginPath();
+            ctx.moveTo(x + 0.5, floorY + 2);
+            ctx.lineTo(x + 0.5, H);
+            ctx.stroke();
+        }
+        ctx.fillStyle = '#252535';
+        ctx.fillRect(0, floorY, W, 2);
+        drawPlatformsAndWalls('#252535', '#353545');
+
+    } else if (bg === 'dagobah') {
+        // Dagobah — murky green swamp, fog, twisted trees
+        ctx.fillStyle = '#0a0f0a';
+        ctx.fillRect(0, 0, W, H);
+        // Foggy green gradient
+        for (let y = 0; y < GROUND_Y + 56; y += 2) {
+            const t = y / (GROUND_Y + 56);
+            ctx.fillStyle = `rgba(20,40,15,${0.02 + t * 0.06})`;
+            ctx.fillRect(0, y, W, 2);
+        }
+        // Twisted dead trees
+        ctx.strokeStyle = '#2a3a1a';
+        ctx.lineWidth = 3;
+        for (let i = 0; i < 4; i++) {
+            const tx = 60 + i * 120;
+            // Trunk
+            ctx.beginPath();
+            ctx.moveTo(tx, GROUND_Y + 56);
+            ctx.lineTo(tx + 5, GROUND_Y - 10);
+            ctx.stroke();
+            // Branches
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(tx + 3, GROUND_Y + 10);
+            ctx.lineTo(tx - 15, GROUND_Y - 20);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(tx + 4, GROUND_Y - 5);
+            ctx.lineTo(tx + 20, GROUND_Y - 30);
+            ctx.stroke();
+            ctx.lineWidth = 3;
+        }
+        // Hanging vines
+        ctx.strokeStyle = '#1a3a0a';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 8; i++) {
+            const vx = 30 + i * 60;
+            const vy = 20 + (i % 3) * 15;
+            ctx.beginPath();
+            ctx.moveTo(vx, vy);
+            ctx.quadraticCurveTo(vx + 3, vy + 20, vx - 2, vy + 35);
+            ctx.stroke();
+        }
+        // Fog patches
+        for (let i = 0; i < 4; i++) {
+            const fx = 20 + i * 130 + Math.sin(gameTime * 0.3 + i) * 10;
+            const fy = GROUND_Y + 20;
+            ctx.fillStyle = 'rgba(40,60,30,0.12)';
+            ctx.beginPath();
+            ctx.ellipse(fx, fy, 60, 12, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // Swamp floor — dark murky green-brown
+        const floorY = GROUND_Y + 56;
+        ctx.fillStyle = '#1a2010';
+        ctx.fillRect(0, floorY, W, H - floorY);
+        // Murky water patches
+        ctx.fillStyle = '#152a10';
+        for (let x = 0; x < W; x += 40) {
+            ctx.fillRect(x + 5, floorY + 3, 25, 4);
+        }
+        ctx.fillStyle = '#2a3a1a';
+        ctx.fillRect(0, floorY, W, 2);
+        drawPlatformsAndWalls('#3a4a2a', '#5a6a4a');
+
+    } else if (bg === 'scarif') {
+        // Scarif — tropical beach, palm trees, blue sky, ocean
+        // Sky gradient — blue
+        for (let y = 0; y < GROUND_Y; y += 2) {
+            const t = y / GROUND_Y;
+            const r = Math.floor(30 + t * 60);
+            const g = Math.floor(80 + t * 80);
+            const b = Math.floor(160 - t * 40);
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.fillRect(0, y, W, 2);
+        }
+        // Ocean in mid-background
+        ctx.fillStyle = '#2266aa';
+        ctx.fillRect(0, GROUND_Y - 10, W, 30);
+        ctx.fillStyle = '#3377bb';
+        // Wave highlights
+        for (let x = 0; x < W; x += 20) {
+            const wy = GROUND_Y - 8 + Math.sin(gameTime * 2 + x * 0.1) * 2;
+            ctx.fillRect(x, wy, 12, 1);
+        }
+        // Palm trees
+        for (let i = 0; i < 3; i++) {
+            const px = 80 + i * 170;
+            // Trunk
+            ctx.strokeStyle = '#5a4020';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(px, GROUND_Y + 56);
+            ctx.quadraticCurveTo(px + 8, GROUND_Y, px + 5, GROUND_Y - 30);
+            ctx.stroke();
+            // Fronds
+            ctx.strokeStyle = '#2a6a1a';
+            ctx.lineWidth = 2;
+            for (let f = 0; f < 5; f++) {
+                const angle = -Math.PI / 2 + (f - 2) * 0.5;
+                ctx.beginPath();
+                ctx.moveTo(px + 5, GROUND_Y - 30);
+                ctx.quadraticCurveTo(
+                    px + 5 + Math.cos(angle) * 20,
+                    GROUND_Y - 30 + Math.sin(angle) * 15,
+                    px + 5 + Math.cos(angle) * 30,
+                    GROUND_Y - 25 + Math.sin(angle) * 20
+                );
+                ctx.stroke();
+            }
+        }
+        // Sandy floor
+        const floorY = GROUND_Y + 56;
+        ctx.fillStyle = '#c4a860';
+        ctx.fillRect(0, floorY, W, H - floorY);
+        ctx.fillStyle = '#d4b870';
+        ctx.fillRect(0, floorY, W, 2);
+        // Sand texture
+        ctx.fillStyle = '#b89850';
+        for (let i = 0; i < 15; i++) {
+            ctx.fillRect(20 + i * 32, floorY + 5 + (i % 3) * 4, 8, 1);
+        }
+        drawPlatformsAndWalls('#8a7a5a', '#a09070');
+
+    } else if (bg === 'starkiller') {
+        // Starkiller Base — dark snowy forest at night, red glow in sky
+        ctx.fillStyle = '#050510';
+        ctx.fillRect(0, 0, W, H);
+        // Red glow in sky from the weapon
+        for (let y = 0; y < 60; y += 2) {
+            const t = 1 - y / 60;
+            ctx.fillStyle = `rgba(120,20,20,${t * 0.08})`;
+            ctx.fillRect(0, y, W, 2);
+        }
+        // Stars
+        for (const s of stars) {
+            ctx.globalAlpha = s.brightness * 0.5;
+            ctx.fillStyle = COLORS.star;
+            ctx.fillRect(s.x, s.y, s.size, s.size);
+        }
+        ctx.globalAlpha = 1;
+        // Dark pine trees
+        for (let i = 0; i < 8; i++) {
+            const tx = 25 + i * 62;
+            const th = 30 + (i % 3) * 15;
+            // Trunk
+            ctx.fillStyle = '#1a1010';
+            ctx.fillRect(tx + 4, GROUND_Y + 56 - th, 4, th);
+            // Triangle tree shape
+            ctx.fillStyle = '#0a1a0a';
+            ctx.beginPath();
+            ctx.moveTo(tx + 6, GROUND_Y + 56 - th - 15);
+            ctx.lineTo(tx - 5, GROUND_Y + 56 - th + 10);
+            ctx.lineTo(tx + 17, GROUND_Y + 56 - th + 10);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(tx + 6, GROUND_Y + 56 - th - 5);
+            ctx.lineTo(tx - 8, GROUND_Y + 56 - th + 20);
+            ctx.lineTo(tx + 20, GROUND_Y + 56 - th + 20);
+            ctx.fill();
+        }
+        // Snow on ground
+        const floorY = GROUND_Y + 56;
+        ctx.fillStyle = '#aabbcc';
+        ctx.fillRect(0, floorY, W, H - floorY);
+        ctx.fillStyle = '#bbccdd';
+        ctx.fillRect(0, floorY, W, 2);
+        // Snow patches
+        ctx.fillStyle = '#99aabb';
+        for (let x = 10; x < W; x += 35) {
+            ctx.fillRect(x, floorY + 4, 15, 2);
+        }
+        // Falling snow particles
+        ctx.fillStyle = '#ddeeff';
+        for (let i = 0; i < 20; i++) {
+            const sx = (i * 47 + gameTime * 15) % W;
+            const sy = (i * 31 + gameTime * 25) % (GROUND_Y + 50);
+            ctx.globalAlpha = 0.4 + (i % 3) * 0.2;
+            ctx.fillRect(sx, sy, 1, 1);
+        }
+        ctx.globalAlpha = 1;
+        drawPlatformsAndWalls('#8898a8', '#a0b0c0');
+
+    } else {
+        // Default: Death Star
+        drawStarsAndSky(COLORS.sky);
+        drawDeathStar();
+        for (const t of tieSquads) {
+            drawTie(t.x, t.y);
+        }
+        drawMetalFloor();
+        drawPlatformsAndWalls();
+    }
+}
+
+// ============================================================
+// TITLE SCREEN
+// ============================================================
+let titleTime = 0;
+
+function bounceOut(x) {
+    const n1 = 7.5625, d1 = 2.75;
+    if (x < 1 / d1) return n1 * x * x;
+    else if (x < 2 / d1) return n1 * (x -= 1.5 / d1) * x + 0.75;
+    else if (x < 2.5 / d1) return n1 * (x -= 2.25 / d1) * x + 0.9375;
+    else return n1 * (x -= 2.625 / d1) * x + 0.984375;
+}
+
+function drawTitleSaberUnit(hiltX, hiltY, tipX, tipY, progress, bladeColor, glowColor, tipGlow, hiltStyle) {
+    const dx = tipX - hiltX, dy = tipY - hiltY;
+    const angle = Math.atan2(dy, dx);
+    const fullLen = Math.sqrt(dx * dx + dy * dy);
+    const len = fullLen * progress;
+
+    ctx.save();
+    ctx.translate(hiltX, hiltY);
+    ctx.rotate(angle);
+
+    // Hilt
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = hiltStyle === 'light' ? '#888888' : '#666666';
+    ctx.fillRect(-14, -2.5, 14, 5);
+    ctx.fillStyle = hiltStyle === 'light' ? '#666666' : '#555555';
+    ctx.fillRect(-13, -3, 2, 6);
+    ctx.fillRect(-9, -3, 2, 6);
+    ctx.fillRect(-5, -3, 2, 6);
+    ctx.fillStyle = hiltStyle === 'light' ? '#aaaaaa' : '#888888';
+    ctx.fillRect(-1, -3, 2, 6);
+    ctx.fillStyle = hiltStyle === 'light' ? '#777777' : '#555555';
+    ctx.fillRect(-15, -2, 2, 4);
+
+    // Blade
+    if (progress > 0) {
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = glowColor;
+        ctx.strokeStyle = bladeColor;
+        ctx.lineWidth = 5;
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(1, 0);
+        ctx.lineTo(1 + len, 0);
+        ctx.stroke();
+
+        ctx.globalAlpha = 0.9;
+        ctx.shadowBlur = 12;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(1, 0);
+        ctx.lineTo(1 + len, 0);
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(1, 0);
+        ctx.lineTo(1 + len, 0);
+        ctx.stroke();
+
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = tipGlow;
+        ctx.fillStyle = tipGlow;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.arc(1 + len, 0, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+function drawTitle(dt) {
+    drawBackground();
+    titleTime += dt;
+    const tt = titleTime;
+
+    // Logo entrance — slams in with bounce
+    const introEnd = 0.8;
+    let logoScale = 1, logoAlpha = 1;
+    if (tt < introEnd) {
+        const p = tt / introEnd;
+        logoScale = 3 - 2 * bounceOut(p);
+        logoAlpha = Math.min(1, p * 3);
+    }
+    const glowPulse = tt > introEnd ? 8 + Math.sin((tt - introEnd) * 3) * 4 : 0;
+
+    ctx.save();
+    ctx.translate(W / 2, 85);
+    ctx.scale(logoScale, logoScale);
+    ctx.globalAlpha = logoAlpha;
+    ctx.shadowBlur = 15 + glowPulse;
+    ctx.shadowColor = '#ff8800';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 36px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('SABER DUEL', 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.fillText('SABER DUEL', 0, 0);
+    ctx.restore();
+
+    // Crossed lightsabers — ignite from hilts after logo lands
+    const blueIgniteStart = introEnd + 0.15;
+    const redIgniteStart = introEnd + 0.35;
+    const igniteDuration = 0.25;
+    const saberLen = 55;
+    const scx = W / 2, scy = 130;
+    const halfAngle = 0.45;
+
+    const blueHiltX = scx - Math.cos(halfAngle) * saberLen;
+    const blueHiltY = scy + Math.sin(halfAngle) * saberLen;
+    const blueTipX = scx + Math.cos(halfAngle) * saberLen;
+    const blueTipY = scy - Math.sin(halfAngle) * saberLen;
+    const redHiltX = scx + Math.cos(halfAngle) * saberLen;
+    const redHiltY = scy + Math.sin(halfAngle) * saberLen;
+    const redTipX = scx - Math.cos(halfAngle) * saberLen;
+    const redTipY = scy - Math.sin(halfAngle) * saberLen;
+
+    const blueProgress = Math.min(1, Math.max(0, (tt - blueIgniteStart) / igniteDuration));
+    const redProgress = Math.min(1, Math.max(0, (tt - redIgniteStart) / igniteDuration));
+
+    if (tt > blueIgniteStart - 0.05) {
+        drawTitleSaberUnit(blueHiltX, blueHiltY, blueTipX, blueTipY, blueProgress,
+            '#5599ff', '#2266ff', '#88bbff', 'light');
+    }
+    if (tt > redIgniteStart - 0.05) {
+        drawTitleSaberUnit(redHiltX, redHiltY, redTipX, redTipY, redProgress,
+            '#ff5555', '#dd0000', '#ff8888', 'dark');
+    }
+
+    // Clash flare
+    if (blueProgress >= 1 && redProgress >= 1) {
+        const clashAge = tt - redIgniteStart - igniteDuration;
+        ctx.save();
+
+        // Initial flash
+        if (clashAge < 0.4) {
+            const f = 1 - clashAge / 0.4;
+            ctx.globalAlpha = f * 0.9;
+            ctx.shadowBlur = 50;
+            ctx.shadowColor = '#ffffff';
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(scx, scy, 20 + f * 30, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Fast pulsating flare
+        const p1 = Math.sin(tt * 28) * 0.5 + 0.5;
+        const p2 = Math.sin(tt * 37 + 0.8) * 0.5 + 0.5;
+        const p3 = Math.sin(tt * 19 + 2.1) * 0.5 + 0.5;
+        const pulse = 0.4 + (p1 * 0.4 + p2 * 0.35 + p3 * 0.25) * 0.6;
+
+        const flareR = 15 + pulse * 4;
+        const flareGrad = ctx.createRadialGradient(scx, scy, 0, scx, scy, flareR);
+        const midAlpha = 0.25 + pulse * 0.1;
+        const outerAlpha = 0.08 + pulse * 0.06;
+        flareGrad.addColorStop(0, 'rgba(255,255,255,1)');
+        flareGrad.addColorStop(0.12, `rgba(255,255,255,${0.85 + pulse * 0.15})`);
+        flareGrad.addColorStop(0.3, `rgba(255,252,240,${0.5 + pulse * 0.15})`);
+        flareGrad.addColorStop(0.5, `rgba(255,240,210,${midAlpha})`);
+        flareGrad.addColorStop(0.75, `rgba(255,210,150,${outerAlpha})`);
+        flareGrad.addColorStop(1, 'rgba(255,180,110,0)');
+        ctx.shadowBlur = 15 + pulse * 5;
+        ctx.shadowColor = '#ffaa44';
+        ctx.fillStyle = flareGrad;
+        ctx.beginPath();
+        ctx.arc(scx, scy, flareR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.restore();
+    }
+
+    // Subtitle
+    if (tt > introEnd + 0.5) {
+        const subAlpha = Math.min(1, (tt - introEnd - 0.5) / 0.4);
+        ctx.globalAlpha = subAlpha;
+        ctx.fillStyle = '#888';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('A GAME BY LINCOLN', W / 2, 175);
+        ctx.globalAlpha = 1;
+    }
+
+    // Press enter — pulsing
+    if (tt > 2) {
+        const pulse = Math.sin(tt * 3) * 0.3 + 0.7;
+        const scalePulse = 1 + Math.sin(tt * 3) * 0.03;
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        ctx.translate(W / 2, 210);
+        ctx.scale(scalePulse, scalePulse);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '12px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('PRESS ENTER TO START', 0, 0);
+        ctx.restore();
+    }
+
+    // Controls hint
+    if (tt > 2.5) {
+        ctx.globalAlpha = Math.min(1, (tt - 2.5) / 0.5) * 0.5;
+        ctx.fillStyle = '#555';
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('J:SLASH K:BLOCK SPACE:JUMP L:FORCE F:GUN G:SHOOT H:NUKE', W / 2, 235);
+        ctx.globalAlpha = 1;
+    }
+}
+
+// ============================================================
+// CHARACTER SELECT
+// ============================================================
+let selectSide = 'light';
+let selectBlink = 0;
+let charSelectIndex = 0;
+let charSelectBlink = 0;
+let saberColorIndex = 0;
+let saberSelectBlink = 0;
+
+function drawSelect(dt) {
+    drawBackground();
+    selectBlink += dt;
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CHOOSE YOUR SIDE', W / 2, 40);
+
+    // Light side
+    const lx = W / 4;
+    const ly = 80;
+    const lSelected = selectSide === 'light';
+    if (lSelected) {
+        ctx.save();
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = COLORS.lightGlow;
+        ctx.strokeStyle = COLORS.lightSaber;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(lx - 50, ly - 10, 100, 130);
+        ctx.restore();
+    }
+    // Draw light warrior
+    const ls = lightSprites.idle;
+    drawSprite(ls, lx - ls.w * 3 / 2, ly + 10, 3, false);
+    ctx.fillStyle = lSelected ? COLORS.lightSaber : '#666';
+    ctx.font = '10px monospace';
+    ctx.fillText('LIGHT SIDE', lx, ly + 100);
+
+    // Saber preview
+    ctx.save();
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = COLORS.lightGlow;
+    ctx.strokeStyle = COLORS.lightSaber;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(lx - 15, ly + 110);
+    ctx.lineTo(lx + 15, ly + 110);
+    ctx.stroke();
+    ctx.restore();
+
+    // Dark side
+    const rx = 3 * W / 4;
+    const ry = 80;
+    const rSelected = selectSide === 'dark';
+    if (rSelected) {
+        ctx.save();
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = COLORS.darkGlow;
+        ctx.strokeStyle = COLORS.darkSaber;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(rx - 50, ry - 10, 100, 130);
+        ctx.restore();
+    }
+    // Draw dark warrior
+    const ds = darkSprites.idle;
+    drawSprite(ds, rx - ds.w * 3 / 2, ry + 10, 3, false);
+    ctx.fillStyle = rSelected ? COLORS.darkSaber : '#666';
+    ctx.font = '10px monospace';
+    ctx.fillText('DARK SIDE', rx, ry + 100);
+
+    // Saber preview
+    ctx.save();
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = COLORS.darkGlow;
+    ctx.strokeStyle = COLORS.darkSaber;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(rx - 15, ry + 110);
+    ctx.lineTo(rx + 15, ry + 110);
+    ctx.stroke();
+    ctx.restore();
+
+    // Arrow indicators
+    const arrowBob = Math.sin(selectBlink * 4) * 3;
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px monospace';
+    ctx.fillText('<', W / 2 - 20 + arrowBob, 140);
+    ctx.fillText('>', W / 2 + 20 - arrowBob, 140);
+
+    // Instructions
+    if (Math.floor(selectBlink * 2) % 2 === 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '10px monospace';
+        ctx.fillText('LEFT/RIGHT TO CHOOSE | ENTER TO CONFIRM | ESC TO GO BACK', W / 2, 240);
+    }
+}
+
+// ============================================================
+// CHARACTER SELECT
+// ============================================================
+function drawCharSelect(dt) {
+    drawBackground();
+    charSelectBlink += dt;
+
+    const roster = CHARACTERS[selectSide];
+    const sideName = selectSide === 'light' ? 'LIGHT SIDE' : 'DARK SIDE';
+    const sideColor = selectSide === 'light' ? '#4488ff' : '#ff4444';
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CHOOSE YOUR FIGHTER', W / 2, 35);
+
+    ctx.fillStyle = sideColor;
+    ctx.font = '10px monospace';
+    ctx.fillText(sideName, W / 2, 50);
+
+    // Draw characters — scale spacing to fit roster
+    const spacing = Math.min(90, (W - 60) / roster.length);
+    const totalW = spacing * (roster.length - 1);
+    const startX = (W - totalW) / 2;
+    const sprScale = roster.length > 4 ? 2 : 2.5;
+
+    for (let i = 0; i < roster.length; i++) {
+        const char = roster[i];
+        const cx = startX + i * spacing;
+        const cy = 105;
+        const selected = i === charSelectIndex;
+
+        // Selection box
+        if (selected) {
+            ctx.save();
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = sideColor;
+            ctx.strokeStyle = sideColor;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(cx - spacing / 2 + 4, cy - 40, spacing - 8, 115);
+            ctx.restore();
+        }
+
+        // Draw character sprite
+        const sprites = getCharSprites(char);
+        const spr = sprites.idle;
+        drawSprite(spr, cx - spr.w * sprScale / 2, cy - 15, sprScale, false, char.defaultSaber.color);
+
+        // Character name
+        ctx.fillStyle = selected ? '#fff' : '#666';
+        ctx.font = selected ? 'bold 8px monospace' : '7px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(char.shortName, cx, cy + 55);
+
+        // Default saber/weapon indicator
+        ctx.save();
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = char.defaultSaber.glow;
+        ctx.strokeStyle = char.defaultSaber.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx - 8, cy + 62);
+        ctx.lineTo(cx + 8, cy + 62);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // Arrow indicators
+    const arrowBob = Math.sin(charSelectBlink * 4) * 3;
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('<', startX - spacing / 2 - 10 + arrowBob, 105);
+    ctx.fillText('>', startX + totalW + spacing / 2 + 10 - arrowBob, 105);
+
+    // Instructions
+    if (Math.floor(charSelectBlink * 2) % 2 === 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('LEFT/RIGHT TO CHOOSE | ENTER TO CONFIRM | ESC TO GO BACK', W / 2, 240);
+    }
+}
+
+// ============================================================
+// GRIEVOUS 4-SABER SELECT
+// ============================================================
+let grievousSelectBlink = 0;
+
+function drawGrievousSelect(dt) {
+    drawBackground();
+    grievousSelectBlink += dt;
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CHOOSE 4 LIGHTSABERS', W / 2, 35);
+
+    ctx.fillStyle = '#888';
+    ctx.font = '9px monospace';
+    ctx.fillText('GENERAL GRIEVOUS COLLECTS SABERS FROM FALLEN JEDI', W / 2, 50);
+
+    // Draw the 4 saber slots
+    const slotLabels = ['TOP LEFT', 'TOP RIGHT', 'BOTTOM LEFT', 'BOTTOM RIGHT'];
+    for (let slot = 0; slot < 4; slot++) {
+        const col = slot % 2;
+        const row = Math.floor(slot / 2);
+        const sx = W / 2 - 80 + col * 160;
+        const sy = 80 + row * 70;
+        const selected = slot === grievousSlot;
+        const saber = grievousSabers[slot] || ALL_SABERS[0];
+
+        // Slot box
+        if (selected) {
+            ctx.save();
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = saber.glow;
+            ctx.strokeStyle = saber.color;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(sx - 55, sy - 15, 110, 45);
+            ctx.restore();
+        }
+
+        // Saber blade
+        ctx.save();
+        ctx.shadowBlur = selected ? 12 : 5;
+        ctx.shadowColor = saber.glow;
+        ctx.strokeStyle = saber.color;
+        ctx.lineWidth = selected ? 4 : 2;
+        ctx.beginPath();
+        ctx.moveTo(sx - 25, sy + 5);
+        ctx.lineTo(sx + 25, sy + 5);
+        ctx.stroke();
+        // White core
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx - 25, sy + 5);
+        ctx.lineTo(sx + 25, sy + 5);
+        ctx.stroke();
+        ctx.restore();
+
+        // Label
+        ctx.fillStyle = selected ? '#fff' : '#666';
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(slotLabels[slot], sx, sy - 5);
+
+        // Color name
+        ctx.fillStyle = selected ? saber.color : '#555';
+        ctx.font = selected ? 'bold 9px monospace' : '8px monospace';
+        ctx.fillText(saber.name, sx, sy + 22);
+    }
+
+    // Instructions
+    if (Math.floor(grievousSelectBlink * 2) % 2 === 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('UP/DOWN: SWITCH SABER | LEFT/RIGHT: CHANGE COLOR | ENTER: FIGHT', W / 2, 240);
+    }
+
+    ctx.fillStyle = '#555';
+    ctx.font = '8px monospace';
+    ctx.fillText('ESC TO GO BACK', W / 2, 252);
+}
+
+// ============================================================
+// SABER COLOR SELECT
+// ============================================================
+function drawSaberSelect(dt) {
+    drawBackground();
+    saberSelectBlink += dt;
+
+    const options = selectSide === 'light' ? LIGHT_SABERS : DARK_SABERS;
+    const sideName = selectSide === 'light' ? 'LIGHT SIDE' : 'DARK SIDE';
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CHOOSE YOUR SABER', W / 2, 40);
+
+    ctx.fillStyle = '#888';
+    ctx.font = '10px monospace';
+    ctx.fillText(sideName, W / 2, 58);
+
+    // Draw saber options spread across the screen
+    const totalW = options.length * 120;
+    const startX = (W - totalW) / 2 + 60;
+
+    for (let i = 0; i < options.length; i++) {
+        const s = options[i];
+        const cx = startX + i * 120;
+        const cy = 130;
+        const selected = i === saberColorIndex;
+
+        // Selection box
+        if (selected) {
+            ctx.save();
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = s.glow;
+            ctx.strokeStyle = s.color;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(cx - 40, cy - 50, 80, 110);
+            ctx.restore();
+        }
+
+        // Saber blade (vertical)
+        ctx.save();
+        ctx.shadowBlur = selected ? 15 : 6;
+        ctx.shadowColor = s.glow;
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = selected ? 5 : 3;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - 35);
+        ctx.lineTo(cx, cy + 15);
+        ctx.stroke();
+        // White core
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = selected ? 2 : 1;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - 35);
+        ctx.lineTo(cx, cy + 15);
+        ctx.stroke();
+        ctx.restore();
+
+        // Hilt
+        ctx.fillStyle = '#888888';
+        ctx.fillRect(cx - 3, cy + 15, 6, 16);
+        ctx.fillStyle = '#666666';
+        ctx.fillRect(cx - 4, cy + 15, 8, 3);
+        ctx.fillRect(cx - 4, cy + 28, 8, 3);
+
+        // Label
+        ctx.fillStyle = selected ? s.color : '#666';
+        ctx.font = selected ? 'bold 11px monospace' : '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(s.name, cx, cy + 50);
+    }
+
+    // Arrow indicators
+    const arrowBob = Math.sin(saberSelectBlink * 4) * 3;
+    const leftX = startX - 70;
+    const rightX = startX + (options.length - 1) * 120 + 70;
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('<', leftX + arrowBob, 135);
+    ctx.fillText('>', rightX - arrowBob, 135);
+
+    // Instructions
+    if (Math.floor(saberSelectBlink * 2) % 2 === 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('LEFT/RIGHT TO CHOOSE | ENTER TO FIGHT | ESC TO GO BACK', W / 2, 240);
+    }
+}
+
+// ============================================================
+// VS SPLASH SCREEN
+// ============================================================
+function drawVersus(dt) {
+    drawBackground();
+    stateTimer += dt;
+
+    // Draw both characters large, facing each other
+    const pSprites = getCharSprites(playerChar);
+    const eSprites = getCharSprites(enemyChar);
+    const pSpr = pSprites.idle;
+    const eSpr = eSprites.idle;
+
+    // Slide in from sides
+    const slideIn = Math.min(1, stateTimer / 0.5);
+    const pX = -60 + slideIn * (W / 4 - pSpr.w * 2);
+    const eX = W + 20 - slideIn * (W / 4 + eSpr.w);
+
+    const pSaber = playerSaberColor || playerChar.defaultSaber;
+    const eSaber = enemyChar.defaultSaber;
+
+    // Player character (left)
+    drawSprite(pSpr, Math.floor(pX), 90, 4, false, pSaber.color);
+    // Enemy character (right)
+    drawSprite(eSpr, Math.floor(eX), 90, 4, true, eSaber.color);
+
+    // Player saber glow on left
+    ctx.save();
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = pSaber.glow;
+    ctx.strokeStyle = pSaber.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(W / 4 - 10, 180);
+    ctx.lineTo(W / 4 + 20, 180);
+    ctx.stroke();
+    ctx.restore();
+
+    // Enemy saber glow on right
+    ctx.save();
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = eSaber.glow;
+    ctx.strokeStyle = eSaber.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(3 * W / 4 + 10, 180);
+    ctx.lineTo(3 * W / 4 - 20, 180);
+    ctx.stroke();
+    ctx.restore();
+
+    // "VS" text — pulses in
+    if (stateTimer > 0.3) {
+        const vsScale = Math.min(1, (stateTimer - 0.3) / 0.2);
+        ctx.save();
+        ctx.translate(W / 2, 140);
+        ctx.scale(vsScale, vsScale);
+        ctx.fillStyle = '#ffcc00';
+        ctx.font = 'bold 36px monospace';
+        ctx.textAlign = 'center';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#ff8800';
+        ctx.fillText('VS', 0, 12);
+        ctx.restore();
+    }
+
+    // Character names
+    if (stateTimer > 0.5) {
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(playerChar.name, W / 4 + 10, 210);
+        ctx.fillText(enemyChar.name, 3 * W / 4 - 10, 210);
+    }
+
+    // "Get ready" text
+    if (stateTimer > 1.2 && Math.floor(stateTimer * 3) % 2 === 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('GET READY', W / 2, 240);
+    }
+}
+
+// ============================================================
+// COUNTDOWN
+// ============================================================
+function drawCountdown(dt) {
+    drawBackground();
+    drawFighter(player);
+    drawFighter(enemy);
+    drawHUD();
+
+    const num = Math.ceil(countdownTimer);
+    if (num > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 48px monospace';
+        ctx.textAlign = 'center';
+        // Scale effect
+        const frac = countdownTimer - Math.floor(countdownTimer);
+        const scale = 1 + frac * 0.3;
+        ctx.save();
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(scale, scale);
+        ctx.globalAlpha = 0.5 + frac * 0.5;
+        ctx.fillText(num.toString(), 0, 15);
+        ctx.restore();
+        ctx.globalAlpha = 1;
+    } else {
+        ctx.fillStyle = '#ffcc00';
+        ctx.font = 'bold 28px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('FIGHT!', W / 2, H / 2 + 10);
+    }
+}
+
+// ============================================================
+// WIN / LOSE / VICTORY SCREENS
+// ============================================================
+function drawWin(dt) {
+    drawBackground();
+    drawFighter(player);
+    drawFighter(enemy);
+    drawHUD();
+
+    stateTimer += dt;
+    ctx.fillStyle = '#44ff44';
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('LEVEL CLEARED!', W / 2, H / 2 - 20);
+
+    ctx.fillStyle = '#aaa';
+    ctx.font = '10px monospace';
+    ctx.fillText(`HP REMAINING: ${Math.ceil(player.hp)}/${player.maxHp}`, W / 2, H / 2 + 10);
+
+    if (stateTimer > 1 && Math.floor(stateTimer * 2) % 2 === 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '12px monospace';
+        ctx.fillText('PRESS ENTER FOR NEXT LEVEL', W / 2, H / 2 + 40);
+    }
+}
+
+function drawLose(dt) {
+    drawBackground();
+    drawFighter(player);
+    drawFighter(enemy);
+    drawHUD();
+
+    stateTimer += dt;
+    ctx.fillStyle = COLORS.hpRed;
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('DEFEATED', W / 2, H / 2 - 20);
+
+    ctx.fillStyle = '#aaa';
+    ctx.font = '10px monospace';
+    const diff = getDifficulty();
+    const loseLayout = LEVEL_LAYOUTS[Math.min(currentLevel - 1, LEVEL_LAYOUTS.length - 1)];
+    ctx.fillText(`FELL AT LEVEL ${currentLevel}: ${loseLayout.name}`, W / 2, H / 2 + 10);
+
+    if (stateTimer > 1 && Math.floor(stateTimer * 2) % 2 === 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '12px monospace';
+        ctx.fillText('PRESS ENTER TO TRY AGAIN', W / 2, H / 2 + 40);
+    }
+}
+
+let victoryParticleTimer = 0;
+function drawVictory(dt) {
+    drawBackground();
+
+    stateTimer += dt;
+    victoryParticleTimer += dt;
+
+    // Fireworks
+    if (victoryParticleTimer > 0.3) {
+        victoryParticleTimer = 0;
+        const fx = 50 + Math.random() * (W - 100);
+        const fy = 40 + Math.random() * 80;
+        const colors = ['#ff4444', '#4488ff', '#ffcc00', '#44ff44', '#ff44ff'];
+        const c = colors[Math.floor(Math.random() * colors.length)];
+        spawnParticles(fx, fy, 15, c, '#ffffff');
+    }
+
+    drawParticles();
+
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('VICTORY!', W / 2, 100);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.fillText('TRUE MASTER OF THE FORCE', W / 2, 135);
+
+    // Draw the player's character
+    const pSprites = getCharSprites(playerChar);
+    const pSpr = pSprites.idle;
+    drawSprite(pSpr, W / 2 - pSpr.w * 1.5, 150, 3, false);
+
+    if (stateTimer > 2 && Math.floor(stateTimer * 2) % 2 === 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '12px monospace';
+        ctx.fillText('PRESS ENTER TO PLAY AGAIN', W / 2, 240);
+    }
+}
+
+// ============================================================
+// MAIN UPDATE
+// ============================================================
+function update(dt) {
+    switch (gameState) {
+        case 'title':
+            if (pressedEnter()) {
+                ensureAudio();
+                sfxConfirm();
+                gameState = 'select';
+                selectSide = 'light';
+                selectBlink = 0;
+            }
+            break;
+
+        case 'select':
+            if (justPressed['ArrowLeft'] || justPressed['KeyA']) { selectSide = 'light'; sfxSelect(); }
+            if (justPressed['ArrowRight'] || justPressed['KeyD']) { selectSide = 'dark'; sfxSelect(); }
+            if (justPressed['Escape']) {
+                sfxSelect();
+                gameState = 'title';
+                titleTime = 0;
+            }
+            if (justPressed['Enter']) {
+                sfxConfirm();
+                playerSide = selectSide;
+                charSelectIndex = 0;
+                charSelectBlink = 0;
+                gameState = 'charSelect';
+            }
+            break;
+
+        case 'charSelect': {
+            const roster = CHARACTERS[playerSide];
+            if (justPressed['ArrowLeft'] || justPressed['KeyA']) {
+                charSelectIndex = (charSelectIndex - 1 + roster.length) % roster.length;
+                sfxSelect();
+            }
+            if (justPressed['ArrowRight'] || justPressed['KeyD']) {
+                charSelectIndex = (charSelectIndex + 1) % roster.length;
+                sfxSelect();
+            }
+            if (justPressed['Escape']) {
+                sfxSelect();
+                gameState = 'select';
+            }
+            if (justPressed['Enter']) {
+                sfxConfirm();
+                playerChar = roster[charSelectIndex];
+                if (playerChar.lightning) {
+                    // Palpatine uses lightning — skip saber select
+                    playerSaberColor = playerChar.defaultSaber;
+                    currentLevel = 1;
+                    initFight();
+                    startMusic();
+                } else if (playerChar.fourSabers) {
+                    // Grievous — pick 4 saber colors
+                    grievousSabers = [ALL_SABERS[0], ALL_SABERS[1], ALL_SABERS[2], ALL_SABERS[3]];
+                    grievousSlot = 0;
+                    grievousSelectBlink = 0;
+                    gameState = 'grievousSelect';
+                } else {
+                    saberColorIndex = 0;
+                    saberSelectBlink = 0;
+                    gameState = 'saberSelect';
+                }
+            }
+            break;
+        }
+
+        case 'grievousSelect': {
+            // Up/down to switch slot, left/right to change color
+            if (justPressed['ArrowUp'] || justPressed['KeyW']) {
+                grievousSlot = (grievousSlot - 1 + 4) % 4;
+                sfxSelect();
+            }
+            if (justPressed['ArrowDown'] || justPressed['KeyS']) {
+                grievousSlot = (grievousSlot + 1) % 4;
+                sfxSelect();
+            }
+            if (justPressed['ArrowLeft'] || justPressed['KeyA']) {
+                const cur = ALL_SABERS.findIndex(s => s.name === grievousSabers[grievousSlot].name);
+                grievousSabers[grievousSlot] = ALL_SABERS[(cur - 1 + ALL_SABERS.length) % ALL_SABERS.length];
+                sfxSelect();
+            }
+            if (justPressed['ArrowRight'] || justPressed['KeyD']) {
+                const cur = ALL_SABERS.findIndex(s => s.name === grievousSabers[grievousSlot].name);
+                grievousSabers[grievousSlot] = ALL_SABERS[(cur + 1) % ALL_SABERS.length];
+                sfxSelect();
+            }
+            if (justPressed['Escape']) {
+                sfxSelect();
+                gameState = 'charSelect';
+            }
+            if (justPressed['Enter']) {
+                sfxConfirm();
+                playerSaberColor = grievousSabers[0];
+                currentLevel = 1;
+                initFight();
+                startMusic();
+            }
+            break;
+        }
+
+        case 'saberSelect': {
+            const opts = playerSide === 'light' ? LIGHT_SABERS : DARK_SABERS;
+            if (justPressed['ArrowLeft'] || justPressed['KeyA']) {
+                saberColorIndex = (saberColorIndex - 1 + opts.length) % opts.length;
+                sfxSelect();
+            }
+            if (justPressed['ArrowRight'] || justPressed['KeyD']) {
+                saberColorIndex = (saberColorIndex + 1) % opts.length;
+                sfxSelect();
+            }
+            if (justPressed['Escape']) {
+                sfxSelect();
+                gameState = 'charSelect';
+            }
+            if (justPressed['Enter']) {
+                sfxConfirm();
+                playerSaberColor = opts[saberColorIndex];
+                currentLevel = 1;
+                initFight();
+                startMusic();
+            }
+            break;
+        }
+
+        case 'versus':
+            stateTimer += dt;
+            if (stateTimer > 2) {
+                countdownTimer = 2.5;
+                gameState = 'countdown';
+            }
+            break;
+
+        case 'countdown': {
+            const prevNum = Math.ceil(countdownTimer);
+            countdownTimer -= dt;
+            const newNum = Math.ceil(countdownTimer);
+            if (newNum !== prevNum && newNum > 0) sfxCountdown();
+            if (prevNum > 0 && newNum <= 0) sfxFight();
+            if (countdownTimer <= -0.5) {
+                gameState = 'fighting';
+            }
+            break;
+        }
+
+        case 'fighting':
+            handlePlayerInput(player);
+            updateAI(enemy, player, dt);
+            updateFighter(player, dt);
+            updateFighter(enemy, dt);
+            updateParticles(dt);
+            updateTies(dt);
+            updateBlasterBolts(dt);
+            updateNuke(dt);
+
+            // Check attacks
+            if (player.state === 'slashing') checkAttackHit(player, enemy);
+            if (enemy.state === 'slashing') checkAttackHit(enemy, player);
+
+            // Screen shake decay
+            if (screenShake > 0) screenShake -= dt;
+
+            // Win/lose check
+            if (enemy.hp <= 0 && enemy.state === 'ko') {
+                if (currentLevel >= maxLevel) {
+                    gameState = 'victory';
+                    stateTimer = 0;
+                    victoryParticleTimer = 0;
+                    particles = [];
+                    sfxWin();
+                    stopMusic();
+                } else {
+                    gameState = 'win';
+                    stateTimer = 0;
+                    sfxWin();
+                }
+            }
+            if (player.hp <= 0 && player.state === 'ko') {
+                gameState = 'lose';
+                stateTimer = 0;
+                sfxLose();
+                stopMusic();
+            }
+            break;
+
+        case 'win':
+            updateParticles(dt);
+            if (stateTimer > 1 && pressedEnter()) {
+                currentLevel++;
+                initFight();
+            }
+            break;
+
+        case 'lose':
+            updateParticles(dt);
+            if (stateTimer > 1 && pressedEnter()) {
+                currentLevel = 1;
+                initFight();
+            }
+            break;
+
+        case 'victory':
+            updateParticles(dt);
+            if (stateTimer > 2 && pressedEnter()) {
+                sfxConfirm();
+                gameState = 'title';
+                titleTime = 0;
+                particles = [];
+            }
+            break;
+    }
+}
+
+// ============================================================
+// MAIN RENDER
+// ============================================================
+function render(dt) {
+    ctx.save();
+
+    // Screen shake
+    if (screenShake > 0) {
+        const shakeX = (Math.random() - 0.5) * 6;
+        const shakeY = (Math.random() - 0.5) * 6;
+        ctx.translate(shakeX, shakeY);
+    }
+
+    switch (gameState) {
+        case 'title':
+            drawTitle(dt);
+            break;
+        case 'select':
+            drawSelect(dt);
+            break;
+        case 'charSelect':
+            drawCharSelect(dt);
+            break;
+        case 'saberSelect':
+            drawSaberSelect(dt);
+            break;
+        case 'grievousSelect':
+            drawGrievousSelect(dt);
+            break;
+        case 'versus':
+            drawVersus(dt);
+            break;
+        case 'countdown':
+            drawCountdown(dt);
+            break;
+        case 'fighting':
+            drawBackground();
+            drawFighter(player);
+            drawFighter(enemy);
+            drawBlasterBolts();
+            drawNuke();
+            drawParticles();
+            drawHUD();
+            break;
+        case 'win':
+            drawWin(dt);
+            break;
+        case 'lose':
+            drawLose(dt);
+            break;
+        case 'victory':
+            drawVictory(dt);
+            break;
+    }
+
+    ctx.restore();
+}
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+function gameLoop(timestamp) {
+    const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    lastTime = timestamp;
+    gameTime += dt;
+
+    update(dt);
+    render(dt);
+    clearJustPressed();
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Start
+requestAnimationFrame((timestamp) => {
+    lastTime = timestamp;
+    gameLoop(timestamp);
+});
+</script>
+</body>
+</html>
