@@ -313,15 +313,35 @@ function setMusicVolume(vol) {
 // ============================================================
 // GAME STATE
 // ============================================================
-let gameState = 'title'; // title | select | charSelect | saberSelect | countdown | fighting | win | lose | victory
+let gameState = 'title'; // title | modeSelect | select | charSelect | saberSelect | countdown | fighting | win | lose | victory | vsSelect1 | vsSelect2 | vsSaber1 | vsSaber2 | vsResult | vsMatchEnd
+let gameMode = 'campaign'; // campaign | versus
 let currentLevel = 1;
 let maxLevel = 10;
 let playerSide = 'light'; // light | dark
 let playerSaberColor = null; // chosen saber color {color, glow, name}
 let enemySaberColor = null;  // enemy gets a default
 function playerHasDarksaber() { return playerSaberColor && playerSaberColor.darksaber; }
+function p2HasDarksaber() { return p2SaberColor && p2SaberColor.darksaber; }
 let grievousSabers = [null, null, null, null]; // 4 saber colors for Grievous
 let grievousSlot = 0; // which slot we're editing (0-3)
+
+// VS mode state
+let modeSelectIndex = 0;
+let p1VsSide = 'light';
+let p1VsCharIndex = 0;
+let p1VsSaberIndex = 0;
+let p2VsSide = 'dark';
+let p2VsCharIndex = 0;
+let p2VsSaberIndex = 0;
+let p2Side = 'dark';
+let p2Char = null;
+let p2SaberColor = null;
+let vsP1Ready = false;
+let vsP2Ready = false;
+let vsRoundsP1 = 0;
+let vsRoundsP2 = 0;
+let vsRound = 0;
+const VS_ROUNDS_TO_WIN = 2; // best of 3
 let nukeAvailable = true; // one per level
 let enemyNukeAvailable = true;
 let nukeActive = false; // explosion in progress
@@ -356,16 +376,71 @@ function clearJustPressed() {
 function anyKey() {
     return Object.keys(justPressed).length > 0;
 }
-function pressedLeft() { return keys['ArrowLeft'] || keys['KeyA']; }
-function pressedRight() { return keys['ArrowRight'] || keys['KeyD']; }
-function pressedSlash() { return justPressed['KeyJ'] || justPressed['KeyZ']; }
-function pressedBlock() { return keys['KeyK'] || keys['KeyX']; }
-function pressedJump() { return justPressed['Space']; }
-function pressedForce() { return justPressed['KeyL'] || justPressed['KeyC']; }
-function pressedGunToggle() { return justPressed['KeyF'] || justPressed['KeyV']; }
-function pressedShoot() { return justPressed['KeyG'] || justPressed['KeyB']; }
-function pressedNuke() { return justPressed['KeyH']; }
+// P1 controls: WASD + nearby keys
+function p1Left() { return keys['KeyA']; }
+function p1Right() { return keys['KeyD']; }
+function p1Up() { return justPressed['KeyW']; }
+function p1Down() { return justPressed['KeyS']; }
+function p1Slash() { return justPressed['KeyF']; }
+function p1Block() { return keys['KeyG']; }
+function p1Jump() { return justPressed['KeyW']; }
+function p1Force() { return justPressed['KeyH']; }
+function p1GunToggle() { return justPressed['KeyR']; }
+function p1Shoot() { return justPressed['KeyE']; }
+function p1Nuke() { return justPressed['KeyT']; }
+function p1Confirm() { return justPressed['KeyF'] || justPressed['Enter']; }
+
+// P2 controls: Arrows + JKL
+function p2Left() { return keys['ArrowLeft']; }
+function p2Right() { return keys['ArrowRight']; }
+function p2Up() { return justPressed['ArrowUp']; }
+function p2Down() { return justPressed['ArrowDown']; }
+function p2Slash() { return justPressed['KeyJ']; }
+function p2Block() { return keys['KeyK']; }
+function p2Jump() { return justPressed['ArrowUp']; }
+function p2Force() { return justPressed['KeyL']; }
+function p2GunToggle() { return justPressed['Semicolon']; }
+function p2Shoot() { return justPressed['Quote']; }
+function p2Nuke() { return justPressed['Period']; }
+function p2Confirm() { return justPressed['KeyJ'] || justPressed['Enter']; }
+
+// Combined (for campaign mode + menus — any player can navigate)
+function pressedLeft() { return p1Left() || p2Left(); }
+function pressedRight() { return p1Right() || p2Right(); }
+function pressedSlash() { return p1Slash() || p2Slash(); }
+function pressedBlock() { return p1Block() || p2Block(); }
+function pressedJump() { return p1Jump() || p2Jump(); }
+function pressedForce() { return p1Force() || p2Force(); }
+function pressedGunToggle() { return p1GunToggle() || p2GunToggle(); }
+function pressedShoot() { return p1Shoot() || p2Shoot(); }
+function pressedNuke() { return p1Nuke() || p2Nuke(); }
 function pressedEnter() { return justPressed['Enter'] || justPressed['Space']; }
+
+// ============================================================
+// HELP / PAUSE OVERLAY
+// ============================================================
+let showingHelp = false;
+let helpButtonBounds = { x: 0, y: 0, w: 0, h: 0 }; // set during render
+
+canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    if (showingHelp) {
+        // Click anywhere to dismiss
+        showingHelp = false;
+        return;
+    }
+
+    // Check ? button hit
+    const b = helpButtonBounds;
+    if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+        showingHelp = true;
+    }
+});
 
 // ============================================================
 // COLORS
@@ -1332,6 +1407,7 @@ function getSaberColor(fighter, index) {
         return grievousSabers[index || 0];
     }
     if (fighter.isPlayer && playerSaberColor) return playerSaberColor;
+    if (!fighter.isPlayer && gameMode === 'versus' && p2SaberColor) return p2SaberColor;
     if (!fighter.isPlayer && fighter.char) return fighter.char.defaultSaber;
     if (!fighter.isPlayer && enemySaberColor) return enemySaberColor;
     return fighter.side === 'light'
@@ -1380,6 +1456,39 @@ function initFight() {
     enemy.displayHp = diff.hp;
 
     // Face each other
+    player.facing = 1;
+    enemy.facing = -1;
+
+    particles = [];
+    blasterBolts = [];
+    nukeAvailable = true;
+    enemyNukeAvailable = true;
+    nukeActive = false;
+    nukeBolt = null;
+    stateTimer = 0;
+    gameState = 'versus';
+}
+
+function initVsFight() {
+    // Pick a random level layout
+    const levelIdx = Math.floor(Math.random() * LEVEL_LAYOUTS.length);
+    loadLevel(levelIdx + 1);
+
+    enemyChar = p2Char;
+    player = createFighter(50, playerSide, true, playerChar);
+    enemy = createFighter(W - 50 - FIGHTER_W, p2Side, false, p2Char);
+
+    // VS mode: equal stats
+    player.hp = 100;
+    player.maxHp = 100;
+    player.displayHp = 100;
+    enemy.hp = 100;
+    enemy.maxHp = 100;
+    enemy.displayHp = 100;
+
+    // Apply P2's saber color
+    enemySaberColor = p2SaberColor;
+
     player.facing = 1;
     enemy.facing = -1;
 
@@ -1746,7 +1855,17 @@ function checkAttackHit(attacker, defender) {
     if (attackX < defX + defW && attackX + attackW > defX &&
         attackY < defY + defH && attackY + attackH > defY) {
         const diff = getDifficulty();
-        const dmg = attacker.isPlayer ? (playerHasDarksaber() ? 22 : 15) : diff.damage;
+        let dmg;
+        if (gameMode === 'versus') {
+            // VS mode: symmetric damage
+            if (attacker === player) {
+                dmg = playerHasDarksaber() ? 22 : 15;
+            } else {
+                dmg = p2HasDarksaber() ? 22 : 15;
+            }
+        } else {
+            dmg = attacker.isPlayer ? (playerHasDarksaber() ? 22 : 15) : diff.damage;
+        }
         applyDamage(attacker, defender, dmg);
         attacker.hitDealt = true;
     }
@@ -1985,11 +2104,23 @@ function handlePlayerInput(p) {
         return;
     }
 
+    // In VS mode, P1 uses only WASD keys; in campaign, both key sets work
+    const isVs = gameMode === 'versus';
+    const left  = isVs ? p1Left()      : pressedLeft();
+    const right = isVs ? p1Right()     : pressedRight();
+    const slash = isVs ? p1Slash()     : pressedSlash();
+    const block = isVs ? p1Block()     : pressedBlock();
+    const jump  = isVs ? p1Jump()      : pressedJump();
+    const force = isVs ? p1Force()     : pressedForce();
+    const gun   = isVs ? p1GunToggle() : pressedGunToggle();
+    const shoot = isVs ? p1Shoot()     : pressedShoot();
+    const nuke  = isVs ? p1Nuke()      : pressedNuke();
+
     // Movement
     p.vx = 0;
     if (p.state !== 'blocking') {
-        if (pressedLeft()) p.vx = -MOVE_SPEED;
-        if (pressedRight()) p.vx = MOVE_SPEED;
+        if (left) p.vx = -MOVE_SPEED;
+        if (right) p.vx = MOVE_SPEED;
     }
 
     // Face opponent
@@ -1998,25 +2129,61 @@ function handlePlayerInput(p) {
     }
 
     // Actions
-    if (pressedGunToggle()) toggleGun(p);
+    if (gun) toggleGun(p);
     if (p.gunDrawn) {
-        // Gun mode — shoot instead of slash, can't block with saber
-        if (pressedShoot()) tryShoot(p);
+        if (shoot) tryShoot(p);
         stopBlock(p);
     } else {
-        // Saber mode
-        if (pressedSlash()) trySlash(p);
-        if (pressedBlock()) {
+        if (slash) trySlash(p);
+        if (block) {
             tryBlock(p);
         } else {
             stopBlock(p);
         }
     }
-    if (pressedJump()) tryJump(p);
-    if (pressedForce()) tryForcePush(p, enemy);
-    if (pressedNuke() && !playerHasDarksaber()) tryNuke(p, enemy);
+    if (jump) tryJump(p);
+    if (force) tryForcePush(p, enemy);
+    if (nuke && !playerHasDarksaber()) tryNuke(p, enemy);
 
     // Update walk state
+    if (p.state === 'idle' && p.vx !== 0) p.state = 'walking';
+    if (p.state === 'walking' && p.vx === 0) p.state = 'idle';
+}
+
+function handleP2Input(p) {
+    if (p.state === 'hit' || p.state === 'ko' || p.state === 'slashing') {
+        p.vx = 0;
+        return;
+    }
+
+    p.vx = 0;
+    if (p.state !== 'blocking') {
+        if (p2Left()) p.vx = -MOVE_SPEED;
+        if (p2Right()) p.vx = MOVE_SPEED;
+    }
+
+    // Face opponent
+    if (player) {
+        p.facing = p.x < player.x ? 1 : -1;
+    }
+
+    // Actions
+    if (p2GunToggle()) toggleGun(p);
+    if (p.gunDrawn) {
+        if (p2Shoot()) tryShoot(p);
+        stopBlock(p);
+    } else {
+        if (p2Slash()) trySlash(p);
+        if (p2Block()) {
+            tryBlock(p);
+        } else {
+            stopBlock(p);
+        }
+    }
+    if (p2Jump()) tryJump(p);
+    if (p2Force()) tryForcePush(p, player);
+    if (p2Nuke() && !p2HasDarksaber()) tryNuke(p, player);
+
     if (p.state === 'idle' && p.vx !== 0) p.state = 'walking';
     if (p.state === 'walking' && p.vx === 0) p.state = 'idle';
 }
@@ -3922,7 +4089,7 @@ function drawVersus(dt) {
     const eX = W + 20 - slideIn * (W / 4 + eSpr.w);
 
     const pSaber = playerSaberColor || playerChar.defaultSaber;
-    const eSaber = enemyChar.defaultSaber;
+    const eSaber = (gameMode === 'versus' && p2SaberColor) ? p2SaberColor : (enemyChar.defaultSaber);
 
     // Player character (left)
     drawSprite(pSpr, Math.floor(pX), 90, 4, false, pSaber.color);
@@ -4110,17 +4277,573 @@ function drawVictory(dt) {
 }
 
 // ============================================================
+// VS MODE DRAW FUNCTIONS
+// ============================================================
+
+function drawKey(x, y, label, w) {
+    const kw = w || 18;
+    const kh = 16;
+    // Key background
+    ctx.fillStyle = '#333';
+    ctx.fillRect(x, y, kw, kh);
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, kw - 1, kh - 1);
+    // Highlight top edge
+    ctx.fillStyle = '#555';
+    ctx.fillRect(x + 1, y + 1, kw - 2, 2);
+    // Label
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + kw / 2, y + kh / 2 + 3);
+}
+
+function drawModeSelect(dt) {
+    ctx.fillStyle = '#0a0a18';
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars
+    for (const s of stars) {
+        ctx.fillStyle = `rgba(255,255,255,${0.3 + Math.sin(gameTime * 2 + s.x) * 0.3})`;
+        ctx.fillRect(s.x, s.y, 1, 1);
+    }
+
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('SABER DUEL', W / 2, 60);
+
+    ctx.fillStyle = '#888';
+    ctx.font = '10px monospace';
+    ctx.fillText('CHOOSE YOUR MODE', W / 2, 85);
+
+    const options = ['CAMPAIGN', 'VS MODE'];
+    for (let i = 0; i < options.length; i++) {
+        const selected = i === modeSelectIndex;
+        const yy = 120 + i * 40;
+
+        if (selected) {
+            ctx.fillStyle = '#ffcc00';
+            ctx.font = 'bold 16px monospace';
+            // Selection arrows
+            ctx.fillText('\u25B6 ' + options[i] + ' \u25C0', W / 2, yy);
+        } else {
+            ctx.fillStyle = '#666';
+            ctx.font = '14px monospace';
+            ctx.fillText(options[i], W / 2, yy);
+        }
+
+        // Subtitle
+        ctx.fillStyle = '#555';
+        ctx.font = '8px monospace';
+        if (i === 0) ctx.fillText('10 LEVELS \u2022 1 PLAYER VS AI', W / 2, yy + 14);
+        if (i === 1) ctx.fillText('BEST OF 3 \u2022 2 PLAYERS', W / 2, yy + 14);
+    }
+
+    // Controls hint
+    ctx.fillStyle = '#444';
+    ctx.font = '8px monospace';
+    ctx.fillText('UP/DOWN TO SELECT \u2022 ENTER TO CONFIRM', W / 2, 230);
+}
+
+function drawVsSelect(dt) {
+    ctx.fillStyle = '#0a0a18';
+    ctx.fillRect(0, 0, W, H);
+
+    // Header
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CHOOSE YOUR FIGHTER', W / 2, 22);
+
+    // Divider line
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(W / 2, 30);
+    ctx.lineTo(W / 2, H - 20);
+    ctx.stroke();
+
+    // VS badge
+    ctx.fillStyle = '#ff4444';
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText('VS', W / 2, H / 2 + 5);
+
+    // P1 side (left)
+    drawVsPlayerSelect(30, 35, W / 2 - 40, p1VsSide, p1VsCharIndex, vsP1Ready, 'P1', 'WASD', 'F');
+
+    // P2 side (right)
+    drawVsPlayerSelect(W / 2 + 10, 35, W / 2 - 40, p2VsSide, p2VsCharIndex, vsP2Ready, 'P2', '\u2190\u2191\u2192\u2193', 'J');
+
+    // Controls help at bottom
+    ctx.fillStyle = '#444';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('P1: W/S=SIDE  A/D=CHAR  F=READY     P2: \u2191\u2193=SIDE  \u2190\u2192=CHAR  J=READY', W / 2, H - 6);
+}
+
+function drawVsPlayerSelect(x, y, w, side, charIdx, ready, label, moveKeys, confirmKey) {
+    const roster = CHARACTERS[side];
+    const char = roster[charIdx];
+    const centerX = x + w / 2;
+
+    // Player label
+    ctx.fillStyle = ready ? '#44cc44' : '#4488ff';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, centerX, y + 10);
+
+    // Side label
+    ctx.fillStyle = side === 'light' ? '#aaaaff' : '#ff8888';
+    ctx.font = '9px monospace';
+    ctx.fillText(side.toUpperCase() + ' SIDE', centerX, y + 24);
+
+    // Character sprite
+    const sprites = getCharSprites(char);
+    const spr = sprites.idle;
+    drawSprite(spr, centerX - spr.w * 1.5, y + 35, 3, false);
+
+    // Character name
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText(char.shortName, centerX, y + 35 + spr.h * 3 + 15);
+
+    // Navigation arrows
+    ctx.fillStyle = '#666';
+    ctx.font = '14px monospace';
+    if (!ready) {
+        ctx.textAlign = 'left';
+        ctx.fillText('\u25C0', x + 5, y + 35 + spr.h * 1.5 + 5);
+        ctx.textAlign = 'right';
+        ctx.fillText('\u25B6', x + w - 5, y + 35 + spr.h * 1.5 + 5);
+    }
+
+    // Ready indicator
+    if (ready) {
+        ctx.fillStyle = '#44cc44';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('READY!', centerX, y + 35 + spr.h * 3 + 32);
+    }
+}
+
+function drawVsSaber(dt) {
+    ctx.fillStyle = '#0a0a18';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CHOOSE YOUR SABER', W / 2, 22);
+
+    // Divider
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(W / 2, 30);
+    ctx.lineTo(W / 2, H - 20);
+    ctx.stroke();
+
+    // P1 saber (left)
+    const p1Opts = playerSide === 'light' ? LIGHT_SABERS : DARK_SABERS;
+    if (!playerChar.lightning && !playerChar.fourSabers) {
+        drawVsSaberPicker(30, 40, W / 2 - 40, p1Opts, p1VsSaberIndex, vsP1Ready, 'P1', playerChar);
+    } else {
+        const cx = 30 + (W / 2 - 40) / 2;
+        ctx.fillStyle = '#44cc44';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('P1: ' + playerChar.shortName, cx, 80);
+        ctx.fillText(playerChar.defaultSaber.name, cx, 95);
+        ctx.fillText('READY!', cx, 120);
+    }
+
+    // P2 saber (right)
+    const p2Opts = p2Side === 'light' ? LIGHT_SABERS : DARK_SABERS;
+    if (!p2Char.lightning && !p2Char.fourSabers) {
+        drawVsSaberPicker(W / 2 + 10, 40, W / 2 - 40, p2Opts, p2VsSaberIndex, vsP2Ready, 'P2', p2Char);
+    } else {
+        const cx = W / 2 + 10 + (W / 2 - 40) / 2;
+        ctx.fillStyle = '#44cc44';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('P2: ' + p2Char.shortName, cx, 80);
+        ctx.fillText(p2Char.defaultSaber.name, cx, 95);
+        ctx.fillText('READY!', cx, 120);
+    }
+
+    ctx.fillStyle = '#444';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('P1: A/D=COLOR  F=CONFIRM     P2: \u2190\u2192=COLOR  J=CONFIRM', W / 2, H - 6);
+}
+
+function drawVsSaberPicker(x, y, w, opts, idx, ready, label, char) {
+    const centerX = x + w / 2;
+    const saber = opts[idx];
+
+    ctx.fillStyle = ready ? '#44cc44' : '#4488ff';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label + ': ' + char.shortName, centerX, y + 10);
+
+    // Draw saber preview — a glowing line
+    ctx.save();
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = saber.glow;
+    ctx.strokeStyle = saber.color;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(centerX - 30, y + 50);
+    ctx.lineTo(centerX + 30, y + 50);
+    ctx.stroke();
+    ctx.restore();
+
+    // Saber name
+    ctx.fillStyle = saber.color;
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText(saber.name, centerX, y + 75);
+
+    // Arrows
+    if (!ready) {
+        ctx.fillStyle = '#666';
+        ctx.font = '14px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('\u25C0', x + 5, y + 55);
+        ctx.textAlign = 'right';
+        ctx.fillText('\u25B6', x + w - 5, y + 55);
+    }
+
+    if (ready) {
+        ctx.fillStyle = '#44cc44';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('READY!', centerX, y + 100);
+    }
+}
+
+function drawVsHUD() {
+    const barW = 160;
+    const barH = 10;
+    const barY = 18;
+    const margin = 20;
+
+    // P1 HP (left)
+    const pLabel = player.char ? ('P1 ' + player.char.shortName) : 'P1';
+    drawHealthBar(margin, barY, barW, barH, player.hp, player.maxHp, player.displayHp, pLabel, 'left');
+
+    // P2 HP (right)
+    const eLabel = enemy.char ? ('P2 ' + enemy.char.shortName) : 'P2';
+    drawHealthBar(W - margin - barW, barY, barW, barH, enemy.hp, enemy.maxHp, enemy.displayHp, eLabel, 'right');
+
+    // Round indicators
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillStyle = '#888';
+    ctx.fillText('ROUND ' + vsRound, W / 2, barY + 4);
+
+    // Round dots
+    const dotY = barY + 12;
+    const dotR = 3;
+    const dotSpacing = 12;
+    const totalW = (VS_ROUNDS_TO_WIN * 2 - 1) * dotSpacing;
+
+    // P1 round dots (left of center)
+    for (let i = 0; i < VS_ROUNDS_TO_WIN; i++) {
+        const dx = W / 2 - 30 - (VS_ROUNDS_TO_WIN - 1 - i) * dotSpacing;
+        ctx.beginPath();
+        ctx.arc(dx, dotY, dotR, 0, Math.PI * 2);
+        ctx.fillStyle = i < vsRoundsP1 ? '#4488ff' : '#333';
+        ctx.fill();
+    }
+
+    // P2 round dots (right of center)
+    for (let i = 0; i < VS_ROUNDS_TO_WIN; i++) {
+        const dx = W / 2 + 30 + i * dotSpacing;
+        ctx.beginPath();
+        ctx.arc(dx, dotY, dotR, 0, Math.PI * 2);
+        ctx.fillStyle = i < vsRoundsP2 ? '#ff4444' : '#333';
+        ctx.fill();
+    }
+
+    // Nuke indicators for both players
+    if (playerHasDarksaber()) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 7px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('DARKSABER', margin, barY + barH + 14);
+    } else if (nukeAvailable) {
+        ctx.save();
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#4488ff';
+        ctx.fillStyle = '#4488ff';
+        ctx.font = 'bold 7px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('[T] NUKE', margin, barY + barH + 14);
+        ctx.restore();
+    }
+
+    if (p2HasDarksaber()) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 7px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText('DARKSABER', W - margin, barY + barH + 14);
+    } else if (enemyNukeAvailable) {
+        ctx.save();
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#ff4444';
+        ctx.fillStyle = '#ff4444';
+        ctx.font = 'bold 7px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText('[.] NUKE', W - margin, barY + barH + 14);
+        ctx.restore();
+    }
+}
+
+function drawVsResult(dt) {
+    drawBackground();
+    drawFighter(player);
+    drawFighter(enemy);
+    drawVsHUD();
+
+    stateTimer += dt;
+
+    // Determine who won this round
+    const p1Won = enemy.hp <= 0;
+    const winner = p1Won ? 'P1' : 'P2';
+    const winColor = p1Won ? '#4488ff' : '#ff4444';
+
+    ctx.fillStyle = winColor;
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(winner + ' WINS ROUND ' + (vsRound), W / 2, H / 2 - 10);
+
+    ctx.fillStyle = '#888';
+    ctx.font = '10px monospace';
+    ctx.fillText('P1: ' + vsRoundsP1 + '  \u2022  P2: ' + vsRoundsP2, W / 2, H / 2 + 12);
+
+    if (stateTimer > 1.5 && Math.floor(stateTimer * 3) % 2 === 0) {
+        ctx.fillStyle = '#666';
+        ctx.font = '10px monospace';
+        ctx.fillText('PRESS ENTER FOR NEXT ROUND', W / 2, H / 2 + 35);
+    }
+}
+
+function drawVsMatchEnd(dt) {
+    drawBackground();
+
+    stateTimer += dt;
+    victoryParticleTimer = (victoryParticleTimer || 0) + dt;
+
+    // Fireworks
+    if (victoryParticleTimer > 0.3) {
+        victoryParticleTimer = 0;
+        const fx = 50 + Math.random() * (W - 100);
+        const fy = 40 + Math.random() * 80;
+        const colors = ['#ff4444', '#4488ff', '#ffcc00', '#44ff44', '#ff44ff'];
+        const c = colors[Math.floor(Math.random() * colors.length)];
+        spawnParticles(fx, fy, 15, c, '#ffffff');
+    }
+    drawParticles();
+
+    const p1Won = vsRoundsP1 >= VS_ROUNDS_TO_WIN;
+    const winner = p1Won ? 'P1' : 'P2';
+    const winChar = p1Won ? playerChar : p2Char;
+    const winColor = p1Won ? '#4488ff' : '#ff4444';
+
+    ctx.fillStyle = winColor;
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(winner + ' WINS!', W / 2, 70);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.fillText(winChar.name, W / 2, 95);
+
+    // Draw winner character
+    const sprites = getCharSprites(winChar);
+    const spr = sprites.idle;
+    drawSprite(spr, W / 2 - spr.w * 1.5, 110, 3, false);
+
+    // Score
+    ctx.fillStyle = '#888';
+    ctx.font = '12px monospace';
+    ctx.fillText(vsRoundsP1 + ' - ' + vsRoundsP2, W / 2, 190);
+
+    if (stateTimer > 2 && Math.floor(stateTimer * 2) % 2 === 0) {
+        ctx.fillStyle = '#666';
+        ctx.font = '10px monospace';
+        ctx.fillText('PRESS ENTER TO CONTINUE', W / 2, 230);
+    }
+}
+
+// ============================================================
+// HELP BUTTON + CONTROLS MODAL
+// ============================================================
+function drawHelpButton() {
+    const bx = W - 22;
+    const by = 4;
+    const bw = 18;
+    const bh = 16;
+    helpButtonBounds = { x: bx, y: by, w: bw, h: bh };
+
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('?', bx + bw / 2, by + bh / 2 + 4);
+}
+
+function drawHelpModal() {
+    // Full-screen dark overlay
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CONTROLS', W / 2, 28);
+
+    const isVs = gameMode === 'versus';
+
+    if (isVs) {
+        // ---- P1 (left half) ----
+        drawControlsPanel(20, 40, W / 2 - 30, 'P1', '#4488ff', [
+            ['W',     'JUMP'],
+            ['A / D', 'MOVE'],
+            ['F',     'SLASH'],
+            ['G',     'BLOCK (HOLD)'],
+            ['H',     'FORCE PUSH'],
+            ['T',     'NUKE'],
+            ['R',     'GUN TOGGLE'],
+            ['E',     'SHOOT'],
+        ]);
+
+        // Divider
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(W / 2, 42);
+        ctx.lineTo(W / 2, H - 25);
+        ctx.stroke();
+
+        // ---- P2 (right half) ----
+        drawControlsPanel(W / 2 + 10, 40, W / 2 - 30, 'P2', '#ff4444', [
+            ['\u2191',         'JUMP'],
+            ['\u2190 / \u2192', 'MOVE'],
+            ['J',              'SLASH'],
+            ['K',              'BLOCK (HOLD)'],
+            ['L',              'FORCE PUSH'],
+            ['.',              'NUKE'],
+            [';',              'GUN TOGGLE'],
+            ['\'',             'SHOOT'],
+        ]);
+    } else {
+        // Campaign — single column, centered
+        drawControlsPanel(W / 4, 40, W / 2, 'CONTROLS', '#4488ff', [
+            ['W / \u2191',         'JUMP'],
+            ['A / \u2190',         'MOVE LEFT'],
+            ['D / \u2192',         'MOVE RIGHT'],
+            ['F / J',              'SLASH'],
+            ['G / K',              'BLOCK (HOLD)'],
+            ['H / L',              'FORCE PUSH'],
+            ['T',                  'NUKE'],
+            ['R',                  'GUN TOGGLE'],
+            ['E',                  'SHOOT'],
+        ]);
+    }
+
+    // Dismiss hint
+    ctx.fillStyle = '#555';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CLICK ANYWHERE OR PRESS ESC TO CLOSE', W / 2, H - 8);
+}
+
+function drawControlsPanel(x, y, w, title, color, rows) {
+    ctx.fillStyle = color;
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(title, x + w / 2, y + 12);
+
+    const startY = y + 26;
+    const rowH = 22;
+
+    for (let i = 0; i < rows.length; i++) {
+        const ry = startY + i * rowH;
+        const [keyLabel, action] = rows[i];
+
+        // Key box
+        const keyW = Math.max(22, keyLabel.length * 8 + 8);
+        const keyX = x + 8;
+        drawKey(keyX, ry, keyLabel, keyW);
+
+        // Action label
+        ctx.fillStyle = '#ccc';
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(action, keyX + keyW + 6, ry + 11);
+    }
+}
+
+// ============================================================
 // MAIN UPDATE
 // ============================================================
 function update(dt) {
+    // Help overlay pauses the game
+    if (showingHelp) {
+        if (justPressed['Escape'] || pressedEnter()) {
+            showingHelp = false;
+        }
+        return;
+    }
+
     switch (gameState) {
         case 'title':
             if (pressedEnter()) {
                 ensureAudio();
                 sfxConfirm();
-                gameState = 'select';
-                selectSide = 'light';
-                selectBlink = 0;
+                gameState = 'modeSelect';
+                modeSelectIndex = 0;
+            }
+            break;
+
+        case 'modeSelect':
+            if (justPressed['ArrowUp'] || justPressed['KeyW'] || justPressed['ArrowLeft'] || justPressed['KeyA']) {
+                modeSelectIndex = 0; sfxSelect();
+            }
+            if (justPressed['ArrowDown'] || justPressed['KeyS'] || justPressed['ArrowRight'] || justPressed['KeyD']) {
+                modeSelectIndex = 1; sfxSelect();
+            }
+            if (justPressed['Escape']) {
+                sfxSelect();
+                gameState = 'title';
+                titleTime = 0;
+            }
+            if (pressedEnter()) {
+                sfxConfirm();
+                if (modeSelectIndex === 0) {
+                    gameMode = 'campaign';
+                    gameState = 'select';
+                    selectSide = 'light';
+                    selectBlink = 0;
+                } else {
+                    gameMode = 'versus';
+                    // P1 picks first
+                    p1VsSide = 'light';
+                    p1VsCharIndex = 0;
+                    p2VsSide = 'dark';
+                    p2VsCharIndex = 0;
+                    vsRoundsP1 = 0;
+                    vsRoundsP2 = 0;
+                    vsRound = 1;
+                    gameState = 'vsSelect';
+                }
             }
             break;
 
@@ -4253,13 +4976,19 @@ function update(dt) {
             if (prevNum > 0 && newNum <= 0) sfxFight();
             if (countdownTimer <= -0.5) {
                 gameState = 'fighting';
+                stateTimer = 0;
             }
             break;
         }
 
         case 'fighting':
+            stateTimer += dt;
             handlePlayerInput(player);
-            updateAI(enemy, player, dt);
+            if (gameMode === 'versus') {
+                handleP2Input(enemy);
+            } else {
+                updateAI(enemy, player, dt);
+            }
             updateFighter(player, dt);
             updateFighter(enemy, dt);
             updateParticles(dt);
@@ -4275,25 +5004,54 @@ function update(dt) {
             if (screenShake > 0) screenShake -= dt;
 
             // Win/lose check
-            if (enemy.hp <= 0 && enemy.state === 'ko') {
-                if (currentLevel >= maxLevel) {
-                    gameState = 'victory';
-                    stateTimer = 0;
-                    victoryParticleTimer = 0;
-                    particles = [];
-                    sfxWin();
-                    stopMusic();
-                } else {
-                    gameState = 'win';
-                    stateTimer = 0;
-                    sfxWin();
+            if (gameMode === 'versus') {
+                if (enemy.hp <= 0 && enemy.state === 'ko') {
+                    vsRoundsP1++;
+                    if (vsRoundsP1 >= VS_ROUNDS_TO_WIN) {
+                        gameState = 'vsMatchEnd';
+                        stateTimer = 0;
+                        sfxWin();
+                        stopMusic();
+                    } else {
+                        gameState = 'vsResult';
+                        stateTimer = 0;
+                        sfxWin();
+                    }
                 }
-            }
-            if (player.hp <= 0 && player.state === 'ko') {
-                gameState = 'lose';
-                stateTimer = 0;
-                sfxLose();
-                stopMusic();
+                if (player.hp <= 0 && player.state === 'ko') {
+                    vsRoundsP2++;
+                    if (vsRoundsP2 >= VS_ROUNDS_TO_WIN) {
+                        gameState = 'vsMatchEnd';
+                        stateTimer = 0;
+                        sfxWin();
+                        stopMusic();
+                    } else {
+                        gameState = 'vsResult';
+                        stateTimer = 0;
+                        sfxLose();
+                    }
+                }
+            } else {
+                if (enemy.hp <= 0 && enemy.state === 'ko') {
+                    if (currentLevel >= maxLevel) {
+                        gameState = 'victory';
+                        stateTimer = 0;
+                        victoryParticleTimer = 0;
+                        particles = [];
+                        sfxWin();
+                        stopMusic();
+                    } else {
+                        gameState = 'win';
+                        stateTimer = 0;
+                        sfxWin();
+                    }
+                }
+                if (player.hp <= 0 && player.state === 'ko') {
+                    gameState = 'lose';
+                    stateTimer = 0;
+                    sfxLose();
+                    stopMusic();
+                }
             }
             break;
 
@@ -4320,6 +5078,178 @@ function update(dt) {
                 gameState = 'title';
                 titleTime = 0;
                 particles = [];
+            }
+            break;
+
+        // ============================================================
+        // VS MODE STATES
+        // ============================================================
+        case 'vsSelect': {
+            // Both players pick side and character simultaneously
+            // P1 controls (left side)
+            const p1Roster = CHARACTERS[p1VsSide];
+            if (justPressed['KeyA']) {
+                p1VsCharIndex = (p1VsCharIndex - 1 + p1Roster.length) % p1Roster.length;
+                sfxSelect();
+            }
+            if (justPressed['KeyD']) {
+                p1VsCharIndex = (p1VsCharIndex + 1) % p1Roster.length;
+                sfxSelect();
+            }
+            if (justPressed['KeyW']) {
+                p1VsSide = p1VsSide === 'light' ? 'dark' : 'light';
+                p1VsCharIndex = 0;
+                sfxSelect();
+            }
+            if (justPressed['KeyS']) {
+                p1VsSide = p1VsSide === 'light' ? 'dark' : 'light';
+                p1VsCharIndex = 0;
+                sfxSelect();
+            }
+            if (justPressed['KeyF']) {
+                vsP1Ready = !vsP1Ready;
+                sfxConfirm();
+            }
+
+            // P2 controls (right side)
+            const p2Roster = CHARACTERS[p2VsSide];
+            if (justPressed['ArrowLeft']) {
+                p2VsCharIndex = (p2VsCharIndex - 1 + p2Roster.length) % p2Roster.length;
+                sfxSelect();
+            }
+            if (justPressed['ArrowRight']) {
+                p2VsCharIndex = (p2VsCharIndex + 1) % p2Roster.length;
+                sfxSelect();
+            }
+            if (justPressed['ArrowUp']) {
+                p2VsSide = p2VsSide === 'light' ? 'dark' : 'light';
+                p2VsCharIndex = 0;
+                sfxSelect();
+            }
+            if (justPressed['ArrowDown']) {
+                p2VsSide = p2VsSide === 'light' ? 'dark' : 'light';
+                p2VsCharIndex = 0;
+                sfxSelect();
+            }
+            if (justPressed['KeyJ']) {
+                vsP2Ready = !vsP2Ready;
+                sfxConfirm();
+            }
+
+            if (justPressed['Escape']) {
+                sfxSelect();
+                vsP1Ready = false;
+                vsP2Ready = false;
+                gameState = 'modeSelect';
+            }
+
+            // Both ready — move to saber select
+            if (vsP1Ready && vsP2Ready) {
+                const p1R = CHARACTERS[p1VsSide];
+                const p2R = CHARACTERS[p2VsSide];
+                playerChar = p1R[p1VsCharIndex];
+                p2Char = p2R[p2VsCharIndex];
+                playerSide = p1VsSide;
+                p2Side = p2VsSide;
+
+                // Skip saber select for lightning/four-saber chars — use defaults
+                const p1NeedsSaber = !playerChar.lightning && !playerChar.fourSabers;
+                const p2NeedsSaber = !p2Char.lightning && !p2Char.fourSabers;
+
+                if (p1NeedsSaber || p2NeedsSaber) {
+                    p1VsSaberIndex = 0;
+                    p2VsSaberIndex = 0;
+                    vsP1Ready = false;
+                    vsP2Ready = false;
+                    // Set defaults for chars that don't need saber select
+                    if (!p1NeedsSaber) {
+                        playerSaberColor = playerChar.defaultSaber;
+                        vsP1Ready = true;
+                    }
+                    if (!p2NeedsSaber) {
+                        p2SaberColor = p2Char.defaultSaber;
+                        vsP2Ready = true;
+                    }
+                    gameState = 'vsSaber';
+                } else {
+                    playerSaberColor = playerChar.defaultSaber;
+                    p2SaberColor = p2Char.defaultSaber;
+                    initVsFight();
+                    startMusic();
+                }
+            }
+            break;
+        }
+
+        case 'vsSaber': {
+            // Both players pick saber color simultaneously
+            const p1Opts = playerSide === 'light' ? LIGHT_SABERS : DARK_SABERS;
+            const p2Opts = p2Side === 'light' ? LIGHT_SABERS : DARK_SABERS;
+
+            if (!vsP1Ready && !playerChar.lightning && !playerChar.fourSabers) {
+                if (justPressed['KeyA']) {
+                    p1VsSaberIndex = (p1VsSaberIndex - 1 + p1Opts.length) % p1Opts.length;
+                    sfxSelect();
+                }
+                if (justPressed['KeyD']) {
+                    p1VsSaberIndex = (p1VsSaberIndex + 1) % p1Opts.length;
+                    sfxSelect();
+                }
+                if (justPressed['KeyF']) {
+                    playerSaberColor = p1Opts[p1VsSaberIndex];
+                    vsP1Ready = true;
+                    sfxConfirm();
+                }
+            }
+
+            if (!vsP2Ready && !p2Char.lightning && !p2Char.fourSabers) {
+                if (justPressed['ArrowLeft']) {
+                    p2VsSaberIndex = (p2VsSaberIndex - 1 + p2Opts.length) % p2Opts.length;
+                    sfxSelect();
+                }
+                if (justPressed['ArrowRight']) {
+                    p2VsSaberIndex = (p2VsSaberIndex + 1) % p2Opts.length;
+                    sfxSelect();
+                }
+                if (justPressed['KeyJ']) {
+                    p2SaberColor = p2Opts[p2VsSaberIndex];
+                    vsP2Ready = true;
+                    sfxConfirm();
+                }
+            }
+
+            if (justPressed['Escape']) {
+                sfxSelect();
+                vsP1Ready = false;
+                vsP2Ready = false;
+                gameState = 'vsSelect';
+            }
+
+            if (vsP1Ready && vsP2Ready) {
+                initVsFight();
+                startMusic();
+            }
+            break;
+        }
+
+        case 'vsResult':
+            stateTimer += dt;
+            updateParticles(dt);
+            if (stateTimer > 1.5 && pressedEnter()) {
+                vsRound++;
+                initVsFight();
+            }
+            break;
+
+        case 'vsMatchEnd':
+            stateTimer += dt;
+            updateParticles(dt);
+            if (stateTimer > 2 && pressedEnter()) {
+                sfxConfirm();
+                gameState = 'title';
+                titleTime = 0;
+                particles = [];
+                stopMusic();
             }
             break;
     }
@@ -4367,7 +5297,13 @@ function render(dt) {
             drawBlasterBolts();
             drawNuke();
             drawParticles();
-            drawHUD();
+            if (gameMode === 'versus') {
+                drawVsHUD();
+            } else {
+                drawHUD();
+            }
+            drawHelpButton();
+            if (showingHelp) drawHelpModal();
             break;
         case 'win':
             drawWin(dt);
@@ -4377,6 +5313,21 @@ function render(dt) {
             break;
         case 'victory':
             drawVictory(dt);
+            break;
+        case 'modeSelect':
+            drawModeSelect(dt);
+            break;
+        case 'vsSelect':
+            drawVsSelect(dt);
+            break;
+        case 'vsSaber':
+            drawVsSaber(dt);
+            break;
+        case 'vsResult':
+            drawVsResult(dt);
+            break;
+        case 'vsMatchEnd':
+            drawVsMatchEnd(dt);
             break;
     }
 
