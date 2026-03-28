@@ -90,9 +90,16 @@ function playNoise(duration, volume) {
 }
 
 function sfxSlash() {
-    // Saber swoosh — filtered noise + descending tone
-    playNoise(0.2, 0.12);
-    playTone(600, 0.15, 'sawtooth', 0.06, 200);
+    if (playerHasDarksaber()) {
+        // Darksaber — deeper, more menacing swoosh
+        playNoise(0.25, 0.15);
+        playTone(300, 0.2, 'sawtooth', 0.1, 100);
+        playTone(150, 0.15, 'square', 0.05, 60);
+    } else {
+        // Saber swoosh — filtered noise + descending tone
+        playNoise(0.2, 0.12);
+        playTone(600, 0.15, 'sawtooth', 0.06, 200);
+    }
 }
 
 function sfxNukeLaunch() {
@@ -312,6 +319,7 @@ let maxLevel = 10;
 let playerSide = 'light'; // light | dark
 let playerSaberColor = null; // chosen saber color {color, glow, name}
 let enemySaberColor = null;  // enemy gets a default
+function playerHasDarksaber() { return playerSaberColor && playerSaberColor.darksaber; }
 let grievousSabers = [null, null, null, null]; // 4 saber colors for Grievous
 let grievousSlot = 0; // which slot we're editing (0-3)
 let nukeAvailable = true; // one per level
@@ -462,6 +470,16 @@ const CHARACTERS = {
             defaultSaber: { name: 'BLUE', color: '#4488ff', glow: '#2266ff' },
         },
         {
+            id: 'obiwan',
+            name: 'OBI-WAN KENOBI',
+            shortName: 'OBI-WAN',
+            colors: {
+                H: '#8a6a3a', F: '#e0c090', R: '#c0a878', T: '#a08860',
+                B: '#6a5a3a', S: '#4488ff', G: '#888888', P: '#e0c090',
+            },
+            defaultSaber: { name: 'BLUE', color: '#4488ff', glow: '#2266ff' },
+        },
+        {
             id: 'rey',
             name: 'REY',
             shortName: 'REY',
@@ -529,6 +547,17 @@ const CHARACTERS = {
             defaultSaber: { name: 'RED', color: '#ff4444', glow: '#dd0000' },
         },
         {
+            id: 'ventress',
+            name: 'ASAJJ VENTRESS',
+            shortName: 'VENTRESS',
+            colors: {
+                H: '#cccccc', F: '#d0c8c0', R: '#2a2228', T: '#1a1218',
+                B: '#1a1218', S: '#ff4444', G: '#666666', P: '#d0c8c0',
+            },
+            defaultSaber: { name: 'RED', color: '#ff4444', glow: '#dd0000' },
+            doubleBlade: true,
+        },
+        {
             id: 'kylo',
             name: 'KYLO REN',
             shortName: 'KYLO',
@@ -550,6 +579,7 @@ const ALL_SABERS = [
     { name: 'RED',    color: '#ff4444', glow: '#dd0000' },
     { name: 'PURPLE', color: '#bb44ff', glow: '#8822cc' },
     { name: 'YELLOW', color: '#ffcc22', glow: '#cc9900' },
+    { name: 'DARKSABER', color: '#ffffff', glow: '#000000', darksaber: true },
 ];
 
 // Selected characters
@@ -1287,11 +1317,13 @@ const LIGHT_SABERS = [
     { name: 'BLUE',   color: '#4488ff', glow: '#2266ff' },
     { name: 'GREEN',  color: '#44dd44', glow: '#22aa22' },
     { name: 'YELLOW', color: '#ffcc22', glow: '#cc9900' },
+    { name: 'DARKSABER', color: '#ffffff', glow: '#000000', darksaber: true },
 ];
 const DARK_SABERS = [
     { name: 'RED',    color: '#ff4444', glow: '#dd0000' },
     { name: 'PURPLE', color: '#bb44ff', glow: '#8822cc' },
     { name: 'YELLOW', color: '#ffcc22', glow: '#cc9900' },
+    { name: 'DARKSABER', color: '#ffffff', glow: '#000000', darksaber: true },
 ];
 
 function getSaberColor(fighter, index) {
@@ -1311,16 +1343,16 @@ function getSaberColor(fighter, index) {
 // DIFFICULTY
 // ============================================================
 const DIFFICULTY = [
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
-    { name: 'Duel',  reaction: 0.7, blockChance: 0.15, attackChance: 0.30, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 1.2,  blockChance: 0.05, attackChance: 0.15, damage: 5,  hp: 50  },
+    { name: 'Duel',  reaction: 1.05, blockChance: 0.08, attackChance: 0.18, damage: 5,  hp: 55  },
+    { name: 'Duel',  reaction: 0.9,  blockChance: 0.10, attackChance: 0.22, damage: 6,  hp: 65  },
+    { name: 'Duel',  reaction: 0.8,  blockChance: 0.13, attackChance: 0.25, damage: 7,  hp: 70  },
+    { name: 'Duel',  reaction: 0.7,  blockChance: 0.16, attackChance: 0.28, damage: 8,  hp: 80  },
+    { name: 'Duel',  reaction: 0.6,  blockChance: 0.20, attackChance: 0.32, damage: 9,  hp: 90  },
+    { name: 'Duel',  reaction: 0.5,  blockChance: 0.25, attackChance: 0.36, damage: 10, hp: 100 },
+    { name: 'Duel',  reaction: 0.4,  blockChance: 0.30, attackChance: 0.40, damage: 11, hp: 110 },
+    { name: 'Duel',  reaction: 0.3,  blockChance: 0.38, attackChance: 0.45, damage: 13, hp: 120 },
+    { name: 'Duel',  reaction: 0.25, blockChance: 0.45, attackChance: 0.50, damage: 14, hp: 130 },
 ];
 
 function getDifficulty() {
@@ -1714,7 +1746,7 @@ function checkAttackHit(attacker, defender) {
     if (attackX < defX + defW && attackX + attackW > defX &&
         attackY < defY + defH && attackY + attackH > defY) {
         const diff = getDifficulty();
-        const dmg = attacker.isPlayer ? 15 : diff.damage;
+        const dmg = attacker.isPlayer ? (playerHasDarksaber() ? 22 : 15) : diff.damage;
         applyDamage(attacker, defender, dmg);
         attacker.hitDealt = true;
     }
@@ -1982,7 +2014,7 @@ function handlePlayerInput(p) {
     }
     if (pressedJump()) tryJump(p);
     if (pressedForce()) tryForcePush(p, enemy);
-    if (pressedNuke()) tryNuke(p, enemy);
+    if (pressedNuke() && !playerHasDarksaber()) tryNuke(p, enemy);
 
     // Update walk state
     if (p.state === 'idle' && p.vx !== 0) p.state = 'walking';
@@ -2013,6 +2045,7 @@ function drawFighter(f) {
     const isLightning = f.char && f.char.lightning;
     const isFourSabers = f.char && f.char.fourSabers;
     const isCrossguard = f.char && f.char.crossguard;
+    const isDarksaber = saberCol && saberCol.darksaber;
 
     if (spriteName === 'slash' || spriteName === 'block' || spriteName === 'idle') {
         ctx.save();
@@ -2144,6 +2177,24 @@ function drawFighter(f) {
                 if (spriteName === 'slash') {
                     const sx = flip ? f.x - 20 : f.x + FIGHTER_W - 5;
                     const sy = f.y + 14;
+                    if (isDarksaber) {
+                        // Darksaber: white edge glow, black blade
+                        ctx.shadowBlur = 14;
+                        ctx.shadowColor = '#ffffff';
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.lineWidth = 5;
+                        ctx.beginPath();
+                        ctx.moveTo(sx, sy);
+                        ctx.lineTo(sx + (flip ? -35 : 35), sy);
+                        ctx.stroke();
+                        ctx.shadowBlur = 0;
+                        ctx.strokeStyle = '#111111';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.moveTo(sx, sy);
+                        ctx.lineTo(sx + (flip ? -35 : 35), sy);
+                        ctx.stroke();
+                    } else {
                     ctx.strokeStyle = saberCol.color;
                     ctx.lineWidth = 3;
                     ctx.beginPath();
@@ -2157,6 +2208,7 @@ function drawFighter(f) {
                     ctx.moveTo(sx, sy);
                     ctx.lineTo(sx + (flip ? -35 : 35), sy);
                     ctx.stroke();
+                    }
 
                     // Double blade
                     if (isDoubleBlade) {
@@ -2195,6 +2247,23 @@ function drawFighter(f) {
                 } else if (spriteName === 'block') {
                     const sx = flip ? f.x + 8 : f.x + FIGHTER_W - 12;
                     const sy = f.y - 14;
+                    if (isDarksaber) {
+                        ctx.shadowBlur = 14;
+                        ctx.shadowColor = '#ffffff';
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.lineWidth = 5;
+                        ctx.beginPath();
+                        ctx.moveTo(sx, sy);
+                        ctx.lineTo(sx, sy + 32);
+                        ctx.stroke();
+                        ctx.shadowBlur = 0;
+                        ctx.strokeStyle = '#111111';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.moveTo(sx, sy);
+                        ctx.lineTo(sx, sy + 32);
+                        ctx.stroke();
+                    } else {
                     ctx.strokeStyle = saberCol.color;
                     ctx.lineWidth = 3;
                     ctx.beginPath();
@@ -2208,6 +2277,7 @@ function drawFighter(f) {
                     ctx.moveTo(sx, sy);
                     ctx.lineTo(sx, sy + 32);
                     ctx.stroke();
+                    }
 
                     // Double blade
                     if (isDoubleBlade) {
@@ -2264,6 +2334,23 @@ function drawFighter(f) {
                     ctx.restore();
 
                     // Blade glow
+                    if (isDarksaber) {
+                        ctx.shadowBlur = 14;
+                        ctx.shadowColor = '#ffffff';
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.lineWidth = 5;
+                        ctx.beginPath();
+                        ctx.moveTo(hx, hy);
+                        ctx.lineTo(tipX, tipY);
+                        ctx.stroke();
+                        ctx.shadowBlur = 0;
+                        ctx.strokeStyle = '#111111';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.moveTo(hx, hy);
+                        ctx.lineTo(tipX, tipY);
+                        ctx.stroke();
+                    } else {
                     ctx.shadowBlur = 12;
                     ctx.shadowColor = saberCol.glow;
                     ctx.strokeStyle = saberCol.color;
@@ -2280,6 +2367,7 @@ function drawFighter(f) {
                     ctx.moveTo(hx, hy);
                     ctx.lineTo(tipX, tipY);
                     ctx.stroke();
+                    }
                 }
             }
         }
@@ -2435,8 +2523,17 @@ function drawHUD() {
     const layout = LEVEL_LAYOUTS[Math.min(currentLevel - 1, LEVEL_LAYOUTS.length - 1)];
     ctx.fillText(`LEVEL ${currentLevel}: ${layout.name}`, W / 2, barY + barH / 2 + 3);
 
-    // Nuke indicator
-    if (nukeAvailable) {
+    // Nuke / Darksaber indicator
+    if (playerHasDarksaber()) {
+        ctx.save();
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = '#ffffff';
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 8px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('DARKSABER +DMG | NO NUKE', margin, barY + barH + 14);
+        ctx.restore();
+    } else if (nukeAvailable) {
         ctx.save();
         ctx.shadowBlur = 6;
         ctx.shadowColor = '#4488ff';
@@ -3705,21 +3802,23 @@ function drawSaberSelect(dt) {
     ctx.fillText(sideName, W / 2, 58);
 
     // Draw saber options spread across the screen
-    const totalW = options.length * 120;
-    const startX = (W - totalW) / 2 + 60;
+    const saberSpacing = Math.min(120, (W - 80) / options.length);
+    const totalW = saberSpacing * (options.length - 1);
+    const startX = (W - totalW) / 2;
 
     for (let i = 0; i < options.length; i++) {
         const s = options[i];
-        const cx = startX + i * 120;
+        const cx = startX + i * saberSpacing;
         const cy = 130;
         const selected = i === saberColorIndex;
+        const isDark = s.darksaber;
 
         // Selection box
         if (selected) {
             ctx.save();
             ctx.shadowBlur = 20;
-            ctx.shadowColor = s.glow;
-            ctx.strokeStyle = s.color;
+            ctx.shadowColor = isDark ? '#ffffff' : s.glow;
+            ctx.strokeStyle = isDark ? '#ffffff' : s.color;
             ctx.lineWidth = 2;
             ctx.strokeRect(cx - 40, cy - 50, 80, 110);
             ctx.restore();
@@ -3727,22 +3826,41 @@ function drawSaberSelect(dt) {
 
         // Saber blade (vertical)
         ctx.save();
-        ctx.shadowBlur = selected ? 15 : 6;
-        ctx.shadowColor = s.glow;
-        ctx.strokeStyle = s.color;
-        ctx.lineWidth = selected ? 5 : 3;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - 35);
-        ctx.lineTo(cx, cy + 15);
-        ctx.stroke();
-        // White core
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = selected ? 2 : 1;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - 35);
-        ctx.lineTo(cx, cy + 15);
-        ctx.stroke();
+        if (isDark) {
+            // Darksaber: white edge, black blade
+            ctx.shadowBlur = selected ? 16 : 8;
+            ctx.shadowColor = '#ffffff';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = selected ? 7 : 5;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - 35);
+            ctx.lineTo(cx, cy + 15);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = '#111111';
+            ctx.lineWidth = selected ? 4 : 3;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - 35);
+            ctx.lineTo(cx, cy + 15);
+            ctx.stroke();
+        } else {
+            ctx.shadowBlur = selected ? 15 : 6;
+            ctx.shadowColor = s.glow;
+            ctx.strokeStyle = s.color;
+            ctx.lineWidth = selected ? 5 : 3;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - 35);
+            ctx.lineTo(cx, cy + 15);
+            ctx.stroke();
+            // White core
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = selected ? 2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - 35);
+            ctx.lineTo(cx, cy + 15);
+            ctx.stroke();
+        }
         ctx.restore();
 
         // Hilt
@@ -3753,16 +3871,23 @@ function drawSaberSelect(dt) {
         ctx.fillRect(cx - 4, cy + 28, 8, 3);
 
         // Label
-        ctx.fillStyle = selected ? s.color : '#666';
+        ctx.fillStyle = selected ? (isDark ? '#ffffff' : s.color) : '#666';
         ctx.font = selected ? 'bold 11px monospace' : '10px monospace';
         ctx.textAlign = 'center';
         ctx.fillText(s.name, cx, cy + 50);
+
+        // Darksaber tradeoff info
+        if (isDark && selected) {
+            ctx.fillStyle = '#aaa';
+            ctx.font = '7px monospace';
+            ctx.fillText('+DMG / NO NUKE', cx, cy + 62);
+        }
     }
 
     // Arrow indicators
     const arrowBob = Math.sin(saberSelectBlink * 4) * 3;
-    const leftX = startX - 70;
-    const rightX = startX + (options.length - 1) * 120 + 70;
+    const leftX = startX - 50;
+    const rightX = startX + totalW + 50;
     ctx.fillStyle = '#fff';
     ctx.font = '16px monospace';
     ctx.textAlign = 'center';
