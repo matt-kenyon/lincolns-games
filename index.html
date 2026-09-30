@@ -208,6 +208,15 @@ body::after {
     color: #333;
     margin-top: 8px;
 }
+.game-card:focus-visible { outline: 3px solid #ffcc00; outline-offset: 4px; }
+.game-card:focus-visible .play-label { opacity: 1; }
+@media (max-width: 540px) {
+    .title { font-size: 20px; line-height: 1.6; }
+    .game-card { padding: 18px; gap: 16px; flex-wrap: wrap; }
+    .game-title { font-size: 11px; line-height: 1.6; }
+    .game-info { min-width: 140px; }
+    .play-label { margin-left: auto; opacity: 1; }
+}
 </style>
 </head>
 <body>
@@ -218,7 +227,7 @@ body::after {
     <header class="header">
         <h1 class="title">LINCOLN'S ARCADE</h1>
         <p class="subtitle">BROWSER GAMES BY LINCOLN KENYON</p>
-        <p class="coin-insert">SELECT A GAME TO PLAY</p>
+        <p class="coin-insert">CHOOSE A GAME OR MAKE A COMIC</p>
     </header>
 
     <div class="games-grid">
@@ -241,6 +250,31 @@ body::after {
                 </div>
             </div>
             <span class="play-label">PLAY ></span>
+        </a>
+
+        <a href="https://comics.lincolns.games/" class="game-card" id="comic-card">
+            <div class="game-icon" aria-hidden="true">
+                <svg viewBox="0 0 80 80" width="80" height="80" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="8" y="10" width="64" height="60" rx="4" fill="#fff2cf" stroke="#ffcc00" stroke-width="3"/>
+                    <rect x="14" y="16" width="23" height="23" fill="#53c8ef" stroke="#12121f" stroke-width="2"/>
+                    <circle cx="30" cy="23" r="4" fill="#ffcc00"/>
+                    <path d="M15 37l8-9 6 6 7-5v9z" fill="#267b69"/>
+                    <rect x="43" y="16" width="23" height="23" fill="#ff798b" stroke="#12121f" stroke-width="2"/>
+                    <path d="M47 21h15v10h-6l-4 4v-4h-5z" fill="white"/>
+                    <rect x="14" y="45" width="52" height="19" fill="#ab8bff" stroke="#12121f" stroke-width="2"/>
+                    <path d="M40 47l3 5 8-2-4 6 5 4-9-1-4 4-1-6-8-1 7-4z" fill="#ffcc00"/>
+                </svg>
+            </div>
+            <div class="game-info">
+                <h2 class="game-title">PHOTO COMIC MAKER</h2>
+                <p class="game-desc">Turn your photos into a comic book. Add speech bubbles, tell your story, then print and share it!</p>
+                <div class="game-tags">
+                    <span class="tag">CREATE</span>
+                    <span class="tag">PHOTOS</span>
+                    <span class="tag">PRINT COMICS</span>
+                </div>
+            </div>
+            <span class="play-label">MAKE ></span>
         </a>
 
         <div class="game-card coming-soon">
