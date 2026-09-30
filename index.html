@@ -243,6 +243,27 @@ body::after {
             <span class="play-label">PLAY ></span>
         </a>
 
+        <a href="https://comics.lincoln.games" class="game-card" id="comic-card">
+            <div class="game-icon">
+                <canvas id="comic-icon" width="40" height="40"></canvas>
+            </div>
+            <div class="game-info">
+                <h2 class="game-title">COMIC MAKER</h2>
+                <p class="game-desc">
+                    Turn your photos into a comic book. Pick a layout,
+                    add speech bubbles, titles and stickers, then print it,
+                    fold it and staple it.
+                </p>
+                <div class="game-tags">
+                    <span class="tag">CREATE</span>
+                    <span class="tag">YOUR PHOTOS</span>
+                    <span class="tag">26 LAYOUTS</span>
+                    <span class="tag">PRINTABLE</span>
+                </div>
+            </div>
+            <span class="play-label">MAKE ></span>
+        </a>
+
         <div class="game-card coming-soon">
             <div class="game-icon">
                 <canvas id="mystery-icon" width="40" height="40"></canvas>
@@ -337,6 +358,52 @@ function drawSaberIcon(t) {
     sctx.restore();
 }
 
+// Comic Maker icon — a little comic page with a speech bubble
+const cc = document.getElementById('comic-icon');
+const cctx = cc.getContext('2d');
+
+function drawComicIcon(t) {
+    cctx.clearRect(0, 0, 40, 40);
+
+    // Page with three panels
+    cctx.fillStyle = '#fff';
+    cctx.fillRect(4, 8, 24, 30);
+    cctx.fillStyle = '#4488ff';
+    cctx.fillRect(6, 10, 20, 12);
+    cctx.fillStyle = '#ffcc00';
+    cctx.fillRect(6, 24, 9, 12);
+    cctx.fillStyle = '#ff4444';
+    cctx.fillRect(17, 24, 9, 12);
+
+    // Speech bubble pops in, "types", and pops out
+    const pop = Math.max(0, Math.sin(t * 2));
+    if (pop < 0.05) return;
+    drawComicBubble(Math.min(1, pop * 1.4), t);
+}
+
+function drawComicBubble(k, t) {
+    cctx.save();
+    cctx.translate(28, 9);
+    cctx.scale(k, k);
+    cctx.fillStyle = '#fff';
+    cctx.strokeStyle = '#0a0a18';
+    cctx.lineWidth = 1;
+    cctx.beginPath();
+    cctx.moveTo(-5, 4);
+    cctx.lineTo(-10, 10);
+    cctx.lineTo(-1, 5);
+    cctx.closePath();
+    cctx.fill();
+    cctx.beginPath();
+    cctx.ellipse(0, 0, 10, 6, 0, 0, Math.PI * 2);
+    cctx.fill();
+    cctx.stroke();
+    cctx.fillStyle = '#0a0a18';
+    const dots = Math.floor(t * 4) % 4;
+    for (let i = 0; i < dots; i++) cctx.fillRect(-5 + i * 4, -1, 2, 2);
+    cctx.restore();
+}
+
 // Mystery icon — question mark
 const mc = document.getElementById('mystery-icon');
 const mctx = mc.getContext('2d');
@@ -353,6 +420,7 @@ function animate(ts) {
     lastT = ts;
     elapsed += dt;
     drawSaberIcon(elapsed);
+    drawComicIcon(elapsed);
     requestAnimationFrame(animate);
 }
 requestAnimationFrame(ts => { lastT = ts; animate(ts); });
