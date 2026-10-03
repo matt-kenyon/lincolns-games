@@ -12,6 +12,10 @@ then escape in a pod and land on the Moon for real.
 Play it at `/stranded-on-mars/` on the arcade. It's plain HTML + JavaScript modules (no build step), using a
 bundled copy of [three.js](https://threejs.org) in `vendor/`.
 
+On the title screen, **PICK A CHAPTER**: Chapter 1 (Mars) starts from the very beginning; Chapter 2 (The
+Mothership) starts as you blast off from Mars, so you see the capture, then play level 2. Click a chapter, or
+choose with the arrow keys / d-pad and press Enter / A.
+
 ## Controls
 
 | Key | Action |

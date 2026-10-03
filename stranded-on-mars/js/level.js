@@ -483,6 +483,22 @@ export class Level {
         g.startRepairSequence(this);
     }
 
+    // Chapter 2 starts right after Mars is beaten: every area clear, all 5 parts back on the ship
+    setBeaten() {
+        const g = this.game;
+        for (let k = 0; k < GATES.length; k++) g.world.openGate(k, true);
+        for (let z = 0; z < ZONES.length; z++) g.aliens.clearZone(z);
+        g.world.dropDome(true);
+        for (const id of PART_ORDER) {
+            this.have[id] = true;
+            this.installed[id] = true;
+            if (this.partPickups[id]) this.removePickup(this.partPickups[id]);
+        }
+        this.captainDown = true;
+        this.refreshShipGhosts();
+        g.world.setShipRepaired();
+    }
+
     // Called by main during the repair cutscene
     repairStep(id, from) {
         const g = this.game;

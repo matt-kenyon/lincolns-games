@@ -126,7 +126,15 @@ class Game {
             this.audio.init();
             this.audio.play('uiMove');
         }));
-        $('btn-start').addEventListener('click', () => this.newGame());
+        // Chapter select: click a chapter to start it (or pick one with arrows / d-pad + Enter / A)
+        this.titleChapter = 1;
+        this.titleStick = 0;
+        document.querySelectorAll('.chapter').forEach((b) => {
+            const n = +b.dataset.ch;
+            b.addEventListener('click', () => this.startChapter(n));
+            b.addEventListener('pointerenter', () => this.selectChapter(n));
+            b.addEventListener('focus', () => this.selectChapter(n));
+        });
         $('btn-continue').addEventListener('click', () => this.continueGame());
         $('btn-howto').addEventListener('click', () => {
             this.audio.init();
@@ -261,6 +269,38 @@ class Game {
         this.diffKey = this.settings.difficulty;
         this.diff = DIFFICULTY[this.diffKey] || DIFFICULTY.normal;
         for (const a of this.aliens.list) if (!a.dead) a.reset();
+    }
+
+    selectChapter(n) {
+        if (n === this.titleChapter) return;
+        this.titleChapter = n;
+        document.querySelectorAll('.chapter').forEach((b) => b.classList.toggle('sel', +b.dataset.ch === n));
+        if (this.audio.ctx) this.audio.play('uiMove');
+    }
+
+    // Chapter 1 = Mars from the very beginning. Chapter 2 = the mothership, starting from the
+    // escape off Mars (ship fixed, liftoff, the capture...) and on into level 2.
+    startChapter(n) {
+        if (this.state !== 'title') return;
+        if (n !== 2) return this.newGame();
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        this.audio.init();
+        this.audio.play('uiSelect');
+        Level.clearSave();
+        this.applyDifficulty();
+        $('screen-title').classList.add('hidden');
+        $('screen-howto').classList.add('hidden');
+        $('screen-settings').classList.add('hidden');
+        this.input.requestLock();
+        this.setState('starting');
+        // Mars is beaten: every area clear and all 5 parts back on the ship
+        this.level.setBeaten();
+        this.effects.clearParticles(); // (no leftover crash smoke)
+        this.player.vm.visible = false;
+        this.hud.show(false);
+        // fade to black first (building the mothership takes a moment), then lift off
+        this.cine.fadeTo(1, 0.3);
+        setTimeout(() => this.startOutro(), 380);
     }
 
     newGame() {
@@ -549,7 +589,15 @@ class Game {
         this.effects.update(dt);
         this.renderWorld(false);
         const menuOpen = !$('screen-howto').classList.contains('hidden') || !$('screen-settings').classList.contains('hidden');
-        if (inp.confirm && !menuOpen && this.stateT > 0.5) this.newGame();
+        if (!menuOpen) {
+            // pick a chapter: left/right arrows, A/D, the d-pad or a flick of the left stick
+            const I = this.input;
+            const sx = inp.moveX;
+            if (I.anyPressed('ArrowLeft', 'KeyA') || I.padWasPressed(14) || (sx < -0.6 && this.titleStick >= -0.6)) this.selectChapter(1);
+            if (I.anyPressed('ArrowRight', 'KeyD') || I.padWasPressed(15) || (sx > 0.6 && this.titleStick <= 0.6)) this.selectChapter(2);
+            this.titleStick = sx;
+        }
+        if (inp.confirm && !menuOpen && this.stateT > 0.5) this.startChapter(this.titleChapter);
     }
 
     updateCinematic(dt, inp) {
