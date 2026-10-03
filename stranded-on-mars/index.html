@@ -891,10 +891,31 @@ html, body {
     .btn { min-width: 220px; font-size: 18px; }
 }
 </style>
+<!-- Every game file is loaded with a version number (?v=) so browsers never mix old and new
+     files after an update. When you change anything in js/, bump the number everywhere
+     in this file (find and replace "?v=3"). -->
 <script type="importmap">
 {
     "imports": {
-        "three": "./vendor/three.module.min.js"
+        "three": "./vendor/three.module.min.js?v=r186",
+        "./js/aliens.js": "./js/aliens.js?v=3",
+        "./js/audio.js": "./js/audio.js?v=3",
+        "./js/cinematics.js": "./js/cinematics.js?v=3",
+        "./js/combat.js": "./js/combat.js?v=3",
+        "./js/config.js": "./js/config.js?v=3",
+        "./js/effects.js": "./js/effects.js?v=3",
+        "./js/hud.js": "./js/hud.js?v=3",
+        "./js/input.js": "./js/input.js?v=3",
+        "./js/layout.js": "./js/layout.js?v=3",
+        "./js/level.js": "./js/level.js?v=3",
+        "./js/models.js": "./js/models.js?v=3",
+        "./js/player.js": "./js/player.js?v=3",
+        "./js/settings.js": "./js/settings.js?v=3",
+        "./js/ship.js": "./js/ship.js?v=3",
+        "./js/terrain.js": "./js/terrain.js?v=3",
+        "./js/toon.js": "./js/toon.js?v=3",
+        "./js/util.js": "./js/util.js?v=3",
+        "./js/world.js": "./js/world.js?v=3"
     }
 }
 </script>
@@ -1053,6 +1074,6 @@ html, body {
 
 <button id="click-resume" class="btn primary hidden">CLICK TO PLAY</button>
 
-<script type="module" src="./js/main.js"></script>
+<script type="module" src="./js/main.js?v=3"></script>
 </body>
 </html>

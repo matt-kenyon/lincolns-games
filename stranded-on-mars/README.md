@@ -40,6 +40,12 @@ saved in the browser, and RESET LOOK SETTINGS puts the look options back to norm
 | `js/audio.js` | All sounds and music (synthesized, no audio files) |
 | `js/toon.js` | The cartoon "Breath of the Wild"-style shading |
 
+## Updating the game
+
+Every code file is loaded with a version number (`?v=3`) set in `index.html`. **Whenever you change anything in
+`js/`, bump that number everywhere in `index.html`** (find and replace `?v=3` with `?v=4`). Otherwise browsers that
+kept old files (Safari especially) can mix old and new code after the update and fail to start.
+
 ## Testing tips
 
 Add `?debug` to the URL for test keys: `1`-`5` jump to checkpoints, `K` defeats the aliens in the current
