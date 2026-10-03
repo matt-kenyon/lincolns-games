@@ -1,0 +1,14 @@
+[
+ {"url": "/stranded-on-mars/?debug&quality=high"},
+ {"eval": "window.measure = (label) => { const g=game, gl=g.renderer.getContext(); g.debug.simulate(0.2,{},true); g.renderWorld(true); gl.finish(); const N=8; let t0=performance.now(); for (let i=0;i<N;i++){ g.renderWorld(true); } gl.finish(); const ms=(performance.now()-t0)/N; g.renderer.info.autoReset=false; g.renderer.info.reset(); g.renderer.render(g.scene, g.camera); const inf={calls:g.renderer.info.render.calls, tris:g.renderer.info.render.triangles}; g.renderer.info.autoReset=true; return {label, ms:+ms.toFixed(1), ...inf, progs: g.renderer.info.programs.length, geos: g.renderer.info.memory.geometries, tex: g.renderer.info.memory.textures}; }; 0"},
+ {"eval": "game.newGame(); game.debug.skipIntro(); game.player.spawn(0,0,0); game.player.god=true; measure('mars-start')"},
+ {"eval": "game.player.spawn(14,-62,0.1); measure('mars-fight1')"},
+ {"eval": "game.player.spawn(33,-600,0); measure('mars-ship')"},
+ {"eval": "game.debug.stage2(0); game.player.god=true; measure('ship-hangar')"},
+ {"eval": "game.player.spawn(-3,5,Math.PI); measure('ship-hangar-back')"},
+ {"eval": "game.debug.teleport(1); measure('ship-reactor')"},
+ {"eval": "game.debug.teleport(2); measure('ship-lab')"},
+ {"eval": "game.debug.teleport(3); measure('ship-bridge')"},
+ {"eval": "game.debug.stage2(4); game.cine.skip(); game.player.god=true; game.player.spawn(4.4,-172.7,-0.315); measure('ship-pit')"},
+ {"eval": "game.debug.stage2(5); game.player.god=true; measure('ship-pod')"}
+]

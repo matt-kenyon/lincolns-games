@@ -1,0 +1,13 @@
+{
+  "name": "stranded-on-mars-dev",
+  "private": true,
+  "type": "module",
+  "description": "Test tools for Stranded on Mars. Not part of the game (the game itself has no build step).",
+  "scripts": {
+    "serve": "cd ../.. && python3 -m http.server 8765",
+    "test": "node run.mjs tests/full.json && node run.mjs tests/regress.json && node run.mjs tests/chapters.json"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}

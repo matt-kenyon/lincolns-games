@@ -69,3 +69,6 @@ Add `?debug` to the URL for test keys: `1`-`5` jump to checkpoints, `K` defeats 
 area, `I` toggles invincibility, `L` gives all ship parts, `9` jumps to level 2 (the mothership) and `0` jumps to
 its escape pod. On the mothership, `5` is the creature pit. Add `&quality=low` or `&quality=high` to pin the
 graphics quality (normally it adjusts itself to keep the game smooth).
+
+Automated tests (a full playthrough of both levels, boss balance, cutscene screenshots) live in `dev/`. See
+`dev/README.md`. Notes for Claude (architecture, debug API, rules) are in `CLAUDE.md` and `HANDOFF.md`.
