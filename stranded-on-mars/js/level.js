@@ -16,7 +16,7 @@ import { rand, store, easeInOut, clamp, lerp } from './util.js';
 const SAVE_KEY = 'strandedOnMars.save.v1';
 const PART_SCALE = { tailFin: 0.55, wing: 0.4, fuelTank: 0.55, thruster: 0.85, powerCore: 1.2 };
 
-function heartGeometry() {
+export function heartGeometry() {
     const s = new THREE.Shape();
     s.moveTo(0, -0.5);
     s.bezierCurveTo(-0.15, -0.3, -0.55, -0.05, -0.55, 0.22);
@@ -44,6 +44,7 @@ export class Level {
         this.bumpT = 0;
         this.combatT = 0;
         this.zoneTimer = 0;
+        this.exploreMusic = 'explore';
         this.heartGeo = heartGeometry();
         this.heartMat = toonMaterial({ color: 0xff4d5e, rim: 0.7, rimColor: 0xffffff });
         this.grenMat = new THREE.MeshBasicMaterial({ color: 0x8ff0ff });
@@ -138,6 +139,43 @@ export class Level {
             if (cap && !cap.dead && this.zone >= 3) return cap.pos;
         }
         return null;
+    }
+
+    // --------------------------------------------------------
+    // What main.js and the HUD ask every level (the mothership level has these too)
+    // --------------------------------------------------------
+    checkpointAt(cp) {
+        return CHECKPOINTS[cp];
+    }
+
+    zoneName(z) {
+        return ZONES[z].name;
+    }
+
+    startBanner(cp) {
+        return [ZONES[cp].name, cp === 0 ? 'MARS' : 'CHECKPOINT'];
+    }
+
+    onStart() {}
+
+    currentZone() {
+        return zoneAtS(this.game.player.pathS ?? 0);
+    }
+
+    // Boss health bar (the Alien Captain, once he's fighting you)
+    bossInfo() {
+        const cap = this.game.aliens.captain();
+        if (!cap || cap.dead || !cap.root.visible || (cap.state !== 'combat' && cap.state !== 'alert')) return null;
+        return { name: 'ALIEN CAPTAIN', hp: cap.hp, maxHp: cap.maxHp, shield: cap.shield, maxShield: cap.maxShield };
+    }
+
+    // Ship parts and the ship on the minimap
+    drawMapIcons(icon) {
+        for (const id of PART_ORDER) {
+            const p = this.partWorldPos(id);
+            if (p) icon(p.x, p.z, 3.2, '#ffd166');
+        }
+        icon(SHIP.x, SHIP.z, 4.2, '#ff8a3d');
     }
 
     // --------------------------------------------------------

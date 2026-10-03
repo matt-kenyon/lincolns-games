@@ -45,6 +45,9 @@ uniform float uRimStrength;
 uniform vec3 uSunDirView;
 uniform float uPaint;
 uniform float uGlowStrength;
+uniform float uHexScale;
+uniform vec3 uHexGlow;
+uniform float uTime;
 varying vec3 vWPos;
 #ifdef USE_GLOW_ATTR
 varying float vGlow;
@@ -86,6 +89,8 @@ function toonOnBeforeCompile(shader) {
     shader.uniforms.uPaint = { value: u.paint };
     shader.uniforms.uSway = { value: u.sway };
     shader.uniforms.uGlowStrength = { value: u.glowStrength };
+    shader.uniforms.uHexScale = { value: u.hex };
+    shader.uniforms.uHexGlow = { value: u.hexGlow };
     u.shader = shader;
 
     shader.vertexShader = shader.vertexShader
@@ -124,10 +129,35 @@ vGlow = glow;
     float pn = tNoise(vWPos.xz * 0.07) * 0.5 + tNoise(vWPos.xz * 0.37 + 7.3) * 0.32 + tNoise(vWPos.xz * 1.9 + vWPos.y) * 0.18;
     diffuseColor.rgb *= 1.0 + (pn - 0.5) * uPaint;
 }
+#endif
+#ifdef USE_HEX
+// alien hex floor tiles (world space, so tiles line up across meshes)
+float hexEdge = 0.0;
+float hexCell = 0.0;
+{
+    vec2 uv = vWPos.xz * uHexScale;
+    vec2 hr = vec2(1.0, 1.7320508);
+    vec2 hh = hr * 0.5;
+    vec2 ha = mod(uv, hr) - hh;
+    vec2 hb = mod(uv - hh, hr) - hh;
+    vec2 gv = dot(ha, ha) < dot(hb, hb) ? ha : hb;
+    vec2 hid = uv - gv;
+    vec2 ag = abs(gv);
+    float hd = max(dot(ag, vec2(0.5, 0.8660254)), ag.x);
+    float fw = fwidth(hd);
+    hexEdge = smoothstep(0.445 - fw * 1.5, 0.47 + fw, hd);
+    // fade the seams out with distance so they don't shimmer
+    hexEdge *= 1.0 - smoothstep(14.0, 55.0, length(vViewPosition));
+    hexCell = tHash(hid * 0.731 + 3.7);
+    diffuseColor.rgb *= (0.88 + hexCell * 0.18) * (1.0 - hexEdge * 0.45);
+}
 #endif`)
         .replace('#include <opaque_fragment>', /* glsl */`
 #ifdef USE_GLOW_ATTR
 outgoingLight += diffuseColor.rgb * vGlow * uGlowStrength;
+#endif
+#ifdef USE_HEX
+outgoingLight += uHexGlow * hexEdge * (0.18 + 0.6 * step(0.86, hexCell)) * (0.55 + 0.45 * sin(uTime * 1.7 + hexCell * 40.0));
 #endif
 #ifdef USE_RIM
 {
@@ -146,7 +176,7 @@ const _matCache = new Map();
 /**
  * Create (or reuse) a toon material.
  * opts: color, vertexColors, rim, rimColor, emissive, glow (vertex attribute),
- *       glowStrength, paint, sway, flat, side, transparent, opacity, fog, cache
+ *       glowStrength, paint, sway, hex (floor tile size), hexGlow, flat, side, transparent, opacity, fog, cache
  */
 export function toonMaterial(opts = {}) {
     const o = {
@@ -159,6 +189,8 @@ export function toonMaterial(opts = {}) {
         glowStrength: 1.4,
         paint: 0,
         sway: 0,
+        hex: 0,
+        hexGlow: 0x000000,
         flat: false,
         side: THREE.FrontSide,
         transparent: false,
@@ -186,12 +218,15 @@ export function toonMaterial(opts = {}) {
         paint: o.paint,
         sway: o.sway,
         glowStrength: o.glowStrength,
+        hex: o.hex,
+        hexGlow: new THREE.Color(o.hexGlow),
     };
     mat.defines = {};
     if (o.rim > 0) mat.defines.USE_RIM = '';
     if (o.paint > 0) mat.defines.USE_PAINT = '';
     if (o.sway > 0) mat.defines.USE_SWAY = '';
     if (o.glow) mat.defines.USE_GLOW_ATTR = '';
+    if (o.hex > 0) mat.defines.USE_HEX = '';
     mat.onBeforeCompile = toonOnBeforeCompile;
     if (key) _matCache.set(key, mat);
     return mat;

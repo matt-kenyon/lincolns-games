@@ -4,24 +4,28 @@
 // ============================================================
 
 import * as THREE from 'three';
-import { World, SUN_DIR } from './world.js';
+import { World } from './world.js';
 import { Effects } from './effects.js';
 import { shared } from './toon.js';
 import { Player } from './player.js';
 import { AlienManager } from './aliens.js';
 import { Combat } from './combat.js';
 import { Level } from './level.js';
+import { Mothership } from './mothership.js';
+import { ShipLevel } from './shiplevel.js';
+import { ZONES as SHIP_ZONES } from './shiplayout.js';
 import { HUD } from './hud.js';
 import { AudioEngine } from './audio.js';
 import { Input } from './input.js';
 import { Cinematics } from './cinematics.js';
 import { DIFFICULTY } from './config.js';
-import { CHECKPOINTS, pathPointAt, SHIP, PART_ORDER, ZONES, zoneAtS, GATES } from './layout.js';
+import { pathPointAt, SHIP, PART_ORDER, ZONES, GATES } from './layout.js';
 import { partSlotWorld } from './ship.js';
 import { clamp, damp, lerp, easeInOut } from './util.js';
 import { loadSettings, saveSettings, mountSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
+const _tp = new THREE.Vector3();
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
@@ -72,12 +76,14 @@ class Game {
         this.world.build(progress);
         await nextFrame();
         progress(0.9, 'Waking up the aliens...');
-        this.aliens = new AlienManager(this);
+        this.aliens = new AlienManager(this, ZONES);
         this.aliens.build();
         this.combat = new Combat(this);
         this.player = new Player(this);
         this.level = new Level(this);
         this.level.build();
+        this.stages = { mars: this.captureStage('mars') };
+        this.stage = this.stages.mars;
         this.cine = new Cinematics(this);
         this.hud.buildMinimap();
         await nextFrame();
@@ -103,6 +109,11 @@ class Game {
     bindUI() {
         const save = Level.loadSave();
         $('btn-continue').classList.toggle('hidden', !save);
+        if (save && save.stage === 2) {
+            $('btn-continue').textContent = 'CONTINUE: LEVEL 2';
+            $('howto-tip').textContent = 'Aboard the alien mothership: beat every wave of aliens to unlock the doors, '
+                + 'find the escape pod... and if something BIG shows up, shoot its EYE!';
+        }
         const diffs = document.querySelectorAll('.diff');
         const setDiff = (d) => {
             this.settings.difficulty = d;
@@ -169,6 +180,56 @@ class Game {
         window.addEventListener('keydown', wake);
     }
 
+    // --------------------------------------------------------
+    // Stages: Mars (level 1) and the alien mothership (level 2). Each one has its
+    // own scene, world, effects, aliens, bolts and level logic; switching swaps them.
+    // --------------------------------------------------------
+    captureStage(key) {
+        return { key, scene: this.scene, world: this.world, effects: this.effects, aliens: this.aliens, combat: this.combat, level: this.level };
+    }
+
+    useStage(st) {
+        this.stage = st;
+        this.scene = st.scene;
+        this.world = st.world;
+        this.effects = st.effects;
+        this.aliens = st.aliens;
+        this.combat = st.combat;
+        this.level = st.level;
+        st.scene.add(this.camera);
+    }
+
+    // Build the mothership (once). It takes a moment, so it happens behind a dark screen.
+    buildShipStage() {
+        if (this.stages.ship) return this.stages.ship;
+        const prev = this.stage;
+        this.scene = new THREE.Scene();
+        this.effects = new Effects(this.scene);
+        this.world = new Mothership(this);
+        this.world.build();
+        this.aliens = new AlienManager(this, SHIP_ZONES);
+        this.aliens.build();
+        this.combat = new Combat(this);
+        this.level = new ShipLevel(this);
+        this.level.build();
+        const st = this.captureStage('ship');
+        this.stages.ship = st;
+        // warm up the new shaders now so the first frames don't stutter
+        this.useStage(st);
+        this.renderer.compile(st.scene, this.camera);
+        this.useStage(prev);
+        return st;
+    }
+
+    enterShipStage() {
+        this.useStage(this.buildShipStage());
+        this.hud.buildMinimap();
+        this.hud.showParts(false);
+        this.hud.clearCompassMarkers();
+        this.player.vm.setLighting(0xc2acff, 0x3a2456, 2.0);
+        this.audio.setAmbience('ship');
+    }
+
     resize() {
         const w = window.innerWidth, h = window.innerHeight;
         this.renderer.setSize(w, h);
@@ -225,28 +286,35 @@ class Game {
         if (s.diff && DIFFICULTY[s.diff]) this.settings.difficulty = s.diff;
         this.applyDifficulty();
         $('screen-title').classList.add('hidden');
-        this.level.applySave(s);
         this.input.requestLock();
+        if (s.stage === 2) {
+            // aboard the mothership
+            this.cine.fadeTo(1, 0);
+            this.enterShipStage();
+        }
+        this.level.applySave(s);
         this.startPlay(this.level.checkpoint, false);
     }
 
     startPlay(cp, fresh) {
-        const c = CHECKPOINTS[cp];
+        const c = this.level.checkpointAt(cp);
         this.player.spawn(c.x, c.z, c.yaw);
         this.player.locked = false;
         this.player.vm.visible = true;
         this.camera.fov = 75;
         this.camera.updateProjectionMatrix();
         this.hud.show(true);
-        this.hud.setParts(this.level.have, this.level.installed);
-        this.level.zone = zoneAtS(this.player.pathS || 0);
+        if (this.stage.key === 'mars') this.hud.setParts(this.level.have, this.level.installed);
+        this.level.zone = this.level.currentZone();
         this.level.zoneTimer = this.time;
         this.setState('play');
         this.cine.fadeTo(0, 0.8);
         this.audio.setAmbient(0.9);
-        this.audio.setMusic('explore');
-        setTimeout(() => this.hud.zoneBanner(ZONES[cp].name, cp === 0 ? 'MARS' : 'CHECKPOINT'), 600);
+        this.audio.setMusic(this.level.exploreMusic);
+        const [big, small] = this.level.startBanner(cp);
+        setTimeout(() => this.hud.zoneBanner(big, small), 600);
         if (fresh) this.level.save();
+        this.level.onStart();
         if (!this.input.locked && !this.input.usingGamepad) $('click-resume').classList.remove('hidden');
     }
 
@@ -366,8 +434,42 @@ class Game {
         for (const id of ['vitals', 'compass', 'objective', 'parts', 'minimap-wrap', 'weapon', 'crosshair']) $(id).style.visibility = '';
         this.hud.show(false);
         this.setState('outro');
+        // Mars is beaten! From now on CONTINUE goes aboard the mothership.
+        ShipLevel.saveStart(this);
+        this.buildShipStage(); // (while the screen is dark)
+        this.cine.playOutro(() => this.startLevel2());
+    }
+
+    // ---------------- Level 2: the alien mothership ----------------
+    startLevel2() {
+        if (this.stage.key !== 'ship') this.enterShipStage();
+        this.world.setWreck(true);
+        this.player.roll = 0;
+        this.player.landDip = 0;
+        this.startPlay(0, true);
+    }
+
+    startBossIntro(boss) {
+        this.setState('cine');
+        this.player.vm.visible = false;
+        this.hud.show(false);
+        this.audio.heartbeat(false);
+        this.cine.playBossIntro(boss, () => {
+            this.hud.show(true);
+            this.player.vm.visible = true;
+            this.setState('play');
+            boss.startFight();
+        });
+    }
+
+    startFinale() {
+        this.setState('cine');
+        this.player.vm.visible = false;
+        this.hud.show(false);
+        this.audio.heartbeat(false);
+        this.audio.alarm(false);
         Level.clearSave();
-        this.cine.playOutro(() => this.showEnd());
+        this.cine.playFinale(() => this.showEnd());
     }
 
     showEnd() {
@@ -379,6 +481,7 @@ class Game {
         $('end-stats').innerHTML = `
             <div>Aliens poofed</div><div class="v">${s.aliens}</div>
             <div>Ship parts found</div><div class="v">5 / 5</div>
+            <div>Creature beaten</div><div class="v">GLORBAX</div>
             <div>Mission time</div><div class="v">${mins}:${String(secs).padStart(2, '0')}</div>
             <div>Knockouts</div><div class="v">${s.deaths}</div>
             <div>Difficulty</div><div class="v">${this.diff.label}</div>`;
@@ -409,7 +512,8 @@ class Game {
         switch (this.state) {
             case 'title': this.updateTitle(dt, inp); break;
             case 'intro':
-            case 'outro': this.updateCinematic(dt, inp); break;
+            case 'outro':
+            case 'cine': this.updateCinematic(dt, inp); break;
             case 'play': this.updatePlay(dt, inp); break;
             case 'paused':
                 if (this.input.padWasPressed(9) || this.input.padWasPressed(0) || this.input.wasPressed('Enter')) this.resume();
@@ -451,7 +555,7 @@ class Game {
     updateCinematic(dt, inp) {
         if (inp.skip && this.stateT > 0.6) this.cine.skip();
         this.cine.update(dt);
-        if (this.state !== 'intro' && this.state !== 'outro') return; // finished during update
+        if (this.state !== 'intro' && this.state !== 'outro' && this.state !== 'cine') return; // finished during update
         if (this.cine.worldShot) {
             this.world.update(dt, this.cine.camera, this.cine.focus);
             this.effects.update(dt);
@@ -459,11 +563,21 @@ class Game {
         this.renderCine();
     }
 
+    // A dramatic slow-motion moment (the boss going down)
+    slowMo(dur, scale) {
+        this.slowT = dur;
+        this.slowScale = scale;
+    }
+
     updatePlay(dt, inp) {
         if (inp.pause) {
             this.pause();
             this.renderWorld(true);
             return;
+        }
+        if (this.slowT > 0) {
+            this.slowT -= dt;
+            dt *= this.slowScale;
         }
         this.time += dt;
         this.stats.time += dt;
@@ -505,7 +619,7 @@ class Game {
                 this.setState('play');
                 this.respawning = false;
                 this.cine.fadeTo(0, 0.6);
-                this.hud.zoneBanner(ZONES[this.level.checkpoint].name, 'CHECKPOINT');
+                this.hud.zoneBanner(this.level.zoneName(this.level.checkpoint), 'CHECKPOINT');
             }, 450);
         }
     }
@@ -515,7 +629,7 @@ class Game {
     // --------------------------------------------------------
     updateSunView(cam) {
         cam.updateMatrixWorld();
-        this.sunView.copy(SUN_DIR).transformDirection(cam.matrixWorldInverse);
+        this.sunView.copy(this.world.sunDir).transformDirection(cam.matrixWorldInverse);
         shared.uSunDirView.value.copy(this.sunView);
     }
 
@@ -579,13 +693,15 @@ class Game {
         if (i.wasPressed('KeyK')) this.debug.killZone();
         if (i.wasPressed('KeyI')) { this.player.god = !this.player.god; this.hud.toast('God mode ' + (this.player.god ? 'ON' : 'OFF')); }
         if (i.wasPressed('KeyL')) this.debug.allParts();
+        if (i.wasPressed('Digit9')) this.debug.stage2();
+        if (i.wasPressed('Digit0')) this.debug.stage2(5);
     }
 
     get debug() {
         const g = this;
         return {
             teleport(cp) {
-                const c = CHECKPOINTS[cp];
+                const c = g.level.checkpointAt(cp);
                 g.player.spawn(c.x, c.z, c.yaw);
                 g.level.checkpoint = Math.max(g.level.checkpoint, cp);
             },
@@ -606,6 +722,17 @@ class Game {
             },
             skipIntro() {
                 if (g.state === 'intro') g.cine.skip();
+            },
+            // Jump straight into level 2 (at checkpoint cp)
+            stage2(cp = 0) {
+                if (g.cine.shots) g.cine.skip();
+                $('screen-title').classList.add('hidden');
+                $('screen-dead').classList.add('hidden');
+                g.enterShipStage();
+                // pretend everything before this checkpoint is done
+                g.level.applySave({ cp, cleared: [0, 1, 2, 3].map((k) => k < cp), bossSeen: cp >= 5, boss: cp >= 5, stats: g.stats });
+                g.world.setWreck(true);
+                g.startPlay(cp, false);
             },
             // fast-forward the running cutscene to shot n (+ seconds into it)
             cineShot(n, into = 0) {
@@ -630,11 +757,13 @@ class Game {
                     const i = Object.assign({}, base, inp);
                     if (inp.jumpEvery) i.jump = Math.floor(t / inp.jumpEvery) !== Math.floor((t - dt) / inp.jumpEvery);
                     if (track) {
-                        const a = g.aliens.list.find((x) => !x.dead && x.root.visible && x.zone === g.level.zone);
-                        if (a) {
-                            const dx = a.pos.x - g.player.pos.x, dz = a.pos.z - g.player.pos.z;
+                        const a = g.aliens.list.find((x) => !x.dead && !x.dormant && x.root.visible && x.zone === g.level.zone);
+                        const B = g.aliens.boss;
+                        const p = a ? _tp.set(a.pos.x, a.pos.y + 1.1, a.pos.z) : B && B.targetable() ? _tp.copy(B.pos) : null;
+                        if (p) {
+                            const dx = p.x - g.player.pos.x, dz = p.z - g.player.pos.z;
                             g.player.yaw = Math.atan2(-dx, -dz);
-                            g.player.pitch = Math.atan2(a.pos.y + 1.1 - g.player.eyePos.y, Math.hypot(dx, dz));
+                            g.player.pitch = Math.atan2(p.y - g.player.eyePos.y, Math.hypot(dx, dz));
                         }
                     }
                     g.frameInput = i;

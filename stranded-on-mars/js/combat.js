@@ -105,7 +105,6 @@ export class Combat {
     update(dt) {
         const g = this.game;
         const world = g.world;
-        const terrain = world.terrain;
         const P = g.player;
         for (let i = this.bolts.length - 1; i >= 0; i--) {
             const b = this.bolts[i];
@@ -140,10 +139,16 @@ export class Combat {
                     const res = g.aliens.segmentHit(b.prev, b.pos, 0.3);
                     if (res) {
                         _p.lerpVectors(b.prev, b.pos, res.t);
-                        const head = res.alien.isHeadshot(_p);
-                        const killed = res.alien.hurt(b.dmg * (head ? 2 : 1), _p, head);
-                        this.impact(_p.x, _p.y, _p.z, head ? 0xffd166 : 0x9ff6ff, 'alien');
-                        g.hud.hitMarker(killed);
+                        if (res.alien.isArmored?.(_p)) {
+                            // the boss's tough skin: bolts bounce off
+                            res.alien.armorHit(_p);
+                            this.impact(_p.x, _p.y, _p.z, 0xfff1c0, 'shield');
+                        } else {
+                            const head = res.alien.isHeadshot(_p);
+                            const killed = res.alien.hurt(b.dmg * (head ? 2 : 1), _p, head);
+                            this.impact(_p.x, _p.y, _p.z, head ? 0xffd166 : 0x9ff6ff, 'alien');
+                            g.hud.hitMarker(killed);
+                        }
                         hit = true;
                         this.tally.alien++;
                     }
@@ -155,12 +160,12 @@ export class Combat {
                     }
                 }
             }
-            // ground
+            // ground (and the mothership's walls)
             if (!hit) {
-                const gy = terrain.heightAt(hx, hz);
-                if (hy < gy) {
-                    this.impact(hx, gy + 0.05, hz, b.owner === 'player' ? 0x9ff6ff : b.color.getHex());
-                    if (b.owner === 'player') { g.audio.play('boltHit', _p.set(hx, gy, hz)); this.tally.ground++; }
+                const sh = world.solidHit(b.prev, b.pos);
+                if (sh) {
+                    this.impact(sh.x, sh.y, sh.z, b.owner === 'player' ? 0x9ff6ff : b.color.getHex(), sh.dust ? 'ground' : 'wall');
+                    if (b.owner === 'player') { g.audio.play('boltHit', _p.set(sh.x, sh.y, sh.z)); this.tally.ground++; }
                     hit = true;
                 }
             }
@@ -207,7 +212,8 @@ export class Combat {
                 const res = g.aliens.segmentHit(_a, gr.pos, 0.25);
                 if (res) {
                     gr.stuck = res.alien;
-                    gr.offset.set(0, 1.25 * res.alien.T.scale, 0);
+                    if (res.alien.stickOffset) res.alien.stickOffset(_b.lerpVectors(_a, gr.pos, res.t), gr.offset);
+                    else gr.offset.set(0, 1.25 * res.alien.T.scale, 0);
                     gr.vel.set(0, 0, 0);
                     gr.fuse = Math.max(gr.fuse, 1.1);
                     g.audio.play('stick', gr.pos);
@@ -220,10 +226,12 @@ export class Combat {
                     gr.pos.copy(_a);
                     gr.vel.x *= -0.3; gr.vel.z *= -0.3;
                 }
-                const gy = terrain.heightAt(gr.pos.x, gr.pos.z);
+                // walls + ceiling (mothership)
+                if (!gr.stuck && world.wallBounce) world.wallBounce(gr.pos, gr.vel, 0.13);
+                const gy = world.groundAt(gr.pos.x, gr.pos.z);
                 if (!gr.stuck && gr.pos.y < gy + 0.13) {
                     gr.pos.y = gy + 0.13;
-                    const n = terrain.normalAt(gr.pos.x, gr.pos.z, _b);
+                    const n = world.normalAt(gr.pos.x, gr.pos.z, _b);
                     const vn = gr.vel.dot(n);
                     if (vn < 0) gr.vel.addScaledVector(n, -vn * 1.4);
                     gr.vel.multiplyScalar(0.45);

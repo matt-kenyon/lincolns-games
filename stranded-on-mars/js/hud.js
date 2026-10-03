@@ -2,10 +2,9 @@
 // HUD — hearts, shield, compass, minimap, ship parts, prompts
 // ============================================================
 
-import * as THREE from 'three';
-import { PART_ORDER, PART_SPOTS, WORLD, SHIP, GATES } from './layout.js';
+import { PART_ORDER } from './layout.js';
 import { PART_INFO } from './ship.js';
-import { wrapAngle, clamp } from './util.js';
+import { wrapAngle } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -49,6 +48,7 @@ export class HUD {
         this.toastsEl = $('toasts');
         this.objEl = $('objective');
         this.bossEl = $('boss');
+        this.bossName = this.bossEl.querySelector('.boss-name');
         this.bossShield = $('boss-shield');
         this.bossHealth = $('boss-health');
         this.dmgEl = $('damage');
@@ -104,36 +104,9 @@ export class HUD {
         document.getElementById('vignette').classList.toggle('hidden', false);
     }
 
-    // ---------- Minimap pre-render ----------
+    // ---------- Minimap (the world draws its own top-down picture) ----------
     buildMinimap() {
-        const T = this.game.world.terrain;
-        const W = T.W, H = T.H;
-        const c = document.createElement('canvas');
-        c.width = W;
-        c.height = H;
-        const ctx = c.getContext('2d');
-        const img = ctx.createImageData(W, H);
-        const col = new THREE.Color();
-        const n = new THREE.Vector3();
-        const L = new THREE.Vector3(-0.5, 0.7, -0.3).normalize();
-        for (let j = 0; j < H; j++) {
-            for (let i = 0; i < W; i++) {
-                const idx = j * W + i;
-                col.setRGB(T.colors[idx * 3], T.colors[idx * 3 + 1], T.colors[idx * 3 + 2]);
-                col.convertLinearToSRGB();
-                T.gridNormal(i, j, n);
-                let shade = 0.65 + 0.5 * Math.max(0, n.dot(L));
-                if (T.sd[idx] > 2) shade *= 0.6;
-                const k = idx * 4;
-                img.data[k] = clamp(col.r * 255 * shade, 0, 255);
-                img.data[k + 1] = clamp(col.g * 255 * shade, 0, 255);
-                img.data[k + 2] = clamp(col.b * 255 * shade, 0, 255);
-                img.data[k + 3] = 255;
-            }
-        }
-        ctx.putImageData(img, 0, 0);
-        this.mapCanvas = c;
-        this.mapScale = 1 / T.cell; // px per meter in the map canvas
+        this.map = this.game.world.mapImage();
         this.mmCtx = this.mm.getContext('2d');
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         this.mm.width = 172 * dpr;
@@ -142,23 +115,24 @@ export class HUD {
     }
 
     drawMinimap() {
-        if (!this.mapCanvas) return;
+        const map = this.map;
+        if (!map) return;
         const g = this.game;
         const ctx = this.mmCtx;
         const S = this.mm.width;
         const P = g.player;
-        const range = 75; // meters shown from center to edge
+        const range = map.range || 75; // meters shown from center to edge
         const ppm = (S / 2) / range;
         ctx.save();
         ctx.clearRect(0, 0, S, S);
-        ctx.fillStyle = '#6b3424';
+        ctx.fillStyle = map.bg;
         ctx.fillRect(0, 0, S, S);
         ctx.translate(S / 2, S / 2);
         ctx.rotate(P.yaw);
         ctx.scale(ppm, ppm);
         ctx.translate(-P.pos.x, -P.pos.z);
         ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(this.mapCanvas, WORLD.x0, WORLD.z0, this.mapCanvas.width / this.mapScale, this.mapCanvas.height / this.mapScale);
+        ctx.drawImage(map.canvas, map.x0, map.z0, map.canvas.width / map.scale, map.canvas.height / map.scale);
 
         // force fields
         ctx.lineCap = 'round';
@@ -182,16 +156,11 @@ export class HUD {
         };
         // aliens that have spotted you
         for (const a of g.aliens.list) {
-            if (a.dead || !a.root.visible) continue;
+            if (a.dead || a.dormant || !a.root.visible) continue;
             if (a.state === 'combat' || a.state === 'alert') icon(a.pos.x, a.pos.z, 2.2, '#ff4d5e');
         }
-        // parts
-        for (const id of PART_ORDER) {
-            const p = g.level.partWorldPos(id);
-            if (p) icon(p.x, p.z, 3.2, '#ffd166');
-        }
-        // ship
-        icon(SHIP.x, SHIP.z, 4.2, '#ff8a3d');
+        // ship parts, the ship, the escape pod...
+        g.level.drawMapIcons(icon);
         ctx.restore();
 
         // player arrow (always pointing up)
@@ -312,12 +281,18 @@ export class HUD {
         this.cross.classList.toggle('target', !!tgt);
 
         // boss
-        const cap = g.aliens.captain();
-        const showBoss = cap && !cap.dead && cap.root.visible && (cap.state === 'combat' || cap.state === 'alert');
+        const boss = g.level.bossInfo();
+        const showBoss = !!boss;
         if (L.boss !== showBoss) { L.boss = showBoss; this.bossEl.classList.toggle('hidden', !showBoss); }
         if (showBoss) {
-            this.bossShield.style.width = ((cap.shield / cap.maxShield) * 100).toFixed(1) + '%';
-            this.bossHealth.style.width = ((cap.hp / cap.maxHp) * 100).toFixed(1) + '%';
+            if (L.bossName !== boss.name) {
+                L.bossName = boss.name;
+                this.bossName.textContent = boss.name;
+                this.bossShield.parentNode.classList.toggle('hidden', !boss.maxShield);
+            }
+            if (boss.maxShield) this.bossShield.style.width = ((boss.shield / boss.maxShield) * 100).toFixed(1) + '%';
+            this.bossHealth.style.width = ((Math.max(0, boss.hp) / boss.maxHp) * 100).toFixed(1) + '%';
+            this.bossEl.classList.toggle('rage', !!boss.rage);
         }
 
         this.drawCompass();
@@ -330,6 +305,15 @@ export class HUD {
             this.dirT -= dt;
             if (this.dirT <= 0) this.dirEl.style.opacity = '0';
         }
+    }
+
+    // The ship-parts tracker only matters on Mars
+    showParts(on) {
+        $('parts').classList.toggle('hidden', !on);
+    }
+
+    clearCompassMarkers() {
+        for (const key of Object.keys(this.objMarkers)) this.clearCompassMarker(key);
     }
 
     setParts(have, installed) {

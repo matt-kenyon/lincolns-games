@@ -533,6 +533,8 @@ html, body {
 .boss-bar > div { height: 100%; transition: width 0.15s; }
 #boss-shield { background: linear-gradient(180deg, #c6fbff, var(--cyan) 50%, var(--cyan-deep)); }
 #boss-health { background: linear-gradient(180deg, #ffe7a3, var(--gold) 50%, #d98b1a); }
+#boss.rage .boss-name { color: #ff6b5b; animation: shieldBlink 0.6s infinite; }
+#boss.rage #boss-health { background: linear-gradient(180deg, #ffb3a3, #ff5b4a 50%, #b8261a); }
 
 /* Damage + low health */
 #damage {
@@ -629,6 +631,58 @@ html, body {
     transition: opacity 1.2s;
 }
 #title-card.on { opacity: 1; }
+/* Level 2 title */
+#level-card {
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 1s;
+}
+#level-card.on { opacity: 1; }
+#level-card .l2 { margin: 0 0 12px; }
+#level-card .l1 {
+    font-size: clamp(44px, 7.5vw, 104px);
+    text-shadow: 0 4px 0 #6a3fc0, 0 8px 0 #3a1f78, 0 14px 30px rgba(0,0,0,0.6);
+}
+/* Boss name card (Ocarina of Time style) */
+#boss-card {
+    position: fixed;
+    left: 7vw;
+    bottom: 16vh;
+    z-index: 9;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(-40px);
+    transition: opacity 0.4s, transform 0.5s;
+}
+#boss-card.on { opacity: 1; transform: none; }
+#boss-card .bc-small {
+    font-family: var(--title-font);
+    font-size: clamp(14px, 1.7vw, 22px);
+    letter-spacing: 4px;
+    color: #ffe7a3;
+    text-shadow: 0 2px 0 rgba(0,0,0,0.8), 0 0 12px rgba(0,0,0,0.6);
+    margin-left: 6px;
+}
+#boss-card .bc-big {
+    font-family: var(--title-font);
+    font-size: clamp(64px, 11vw, 150px);
+    line-height: 0.95;
+    letter-spacing: 6px;
+    color: #fff;
+    text-shadow: 0 5px 0 #9a2f86, 0 10px 0 #4a1046, 0 0 40px rgba(255, 90, 200, 0.6);
+}
+#boss-card.on .bc-big { animation: bossPunch 0.7s ease-out; }
+@keyframes bossPunch {
+    0% { transform: scale(1.9); opacity: 0; filter: blur(8px); }
+    55% { transform: scale(0.94); opacity: 1; filter: none; }
+    100% { transform: scale(1); }
+}
 
 #fade {
     position: fixed;
@@ -893,29 +947,37 @@ html, body {
 </style>
 <!-- Every game file is loaded with a version number (?v=) so browsers never mix old and new
      files after an update. When you change anything in js/, bump the number everywhere
-     in this file (find and replace "?v=3"). -->
+     in this file (find and replace "?v=4"). -->
 <script type="importmap">
 {
     "imports": {
         "three": "./vendor/three.module.min.js?v=r186",
-        "./js/aliens.js": "./js/aliens.js?v=3",
-        "./js/audio.js": "./js/audio.js?v=3",
-        "./js/cinematics.js": "./js/cinematics.js?v=3",
-        "./js/combat.js": "./js/combat.js?v=3",
-        "./js/config.js": "./js/config.js?v=3",
-        "./js/effects.js": "./js/effects.js?v=3",
-        "./js/hud.js": "./js/hud.js?v=3",
-        "./js/input.js": "./js/input.js?v=3",
-        "./js/layout.js": "./js/layout.js?v=3",
-        "./js/level.js": "./js/level.js?v=3",
-        "./js/models.js": "./js/models.js?v=3",
-        "./js/player.js": "./js/player.js?v=3",
-        "./js/settings.js": "./js/settings.js?v=3",
-        "./js/ship.js": "./js/ship.js?v=3",
-        "./js/terrain.js": "./js/terrain.js?v=3",
-        "./js/toon.js": "./js/toon.js?v=3",
-        "./js/util.js": "./js/util.js?v=3",
-        "./js/world.js": "./js/world.js?v=3"
+        "./js/aliens.js": "./js/aliens.js?v=4",
+        "./js/audio.js": "./js/audio.js?v=4",
+        "./js/boss.js": "./js/boss.js?v=4",
+        "./js/cinematics.js": "./js/cinematics.js?v=4",
+        "./js/combat.js": "./js/combat.js?v=4",
+        "./js/config.js": "./js/config.js?v=4",
+        "./js/cutscenes2.js": "./js/cutscenes2.js?v=4",
+        "./js/drops.js": "./js/drops.js?v=4",
+        "./js/effects.js": "./js/effects.js?v=4",
+        "./js/hud.js": "./js/hud.js?v=4",
+        "./js/input.js": "./js/input.js?v=4",
+        "./js/layout.js": "./js/layout.js?v=4",
+        "./js/level.js": "./js/level.js?v=4",
+        "./js/models.js": "./js/models.js?v=4",
+        "./js/mothership.js": "./js/mothership.js?v=4",
+        "./js/player.js": "./js/player.js?v=4",
+        "./js/settings.js": "./js/settings.js?v=4",
+        "./js/ship.js": "./js/ship.js?v=4",
+        "./js/shiplayout.js": "./js/shiplayout.js?v=4",
+        "./js/shiplevel.js": "./js/shiplevel.js?v=4",
+        "./js/shipmodels.js": "./js/shipmodels.js?v=4",
+        "./js/shipprops.js": "./js/shipprops.js?v=4",
+        "./js/terrain.js": "./js/terrain.js?v=4",
+        "./js/toon.js": "./js/toon.js?v=4",
+        "./js/util.js": "./js/util.js?v=4",
+        "./js/world.js": "./js/world.js?v=4"
     }
 }
 </script>
@@ -980,6 +1042,10 @@ html, body {
 <div id="title-card">
     <div class="logo"><div class="l1">STRANDED</div><div class="l2">ON MARS</div></div>
 </div>
+<div id="level-card">
+    <div class="logo"><div class="l2">LEVEL 2</div><div class="l1">THE MOTHERSHIP</div></div>
+</div>
+<div id="boss-card"><div class="bc-small"></div><div class="bc-big"></div></div>
 <div id="fade"></div>
 
 <!-- ======================= LOADING ======================= -->
@@ -1015,7 +1081,7 @@ html, body {
     <div class="panel">
         <h2>HOW TO PLAY</h2>
         <div class="controls-grid" id="controls-grid-1"></div>
-        <p class="tip">Find the 5 missing pieces of your ship, beat the aliens guarding the way, then fix your ship and fly to the Moon!</p>
+        <p class="tip" id="howto-tip">Find the 5 missing pieces of your ship, beat the aliens guarding the way, then fix your ship and fly to the Moon!</p>
         <div style="text-align:center;margin-top:18px"><button class="btn small" id="btn-howto-close">GOT IT!</button></div>
     </div>
 </div>
@@ -1074,6 +1140,6 @@ html, body {
 
 <button id="click-resume" class="btn primary hidden">CLICK TO PLAY</button>
 
-<script type="module" src="./js/main.js?v=3"></script>
+<script type="module" src="./js/main.js?v=4"></script>
 </body>
 </html>

@@ -36,7 +36,8 @@ export function createAstronaut() {
     body.add(head);
     b = new GeoBuilder();
     b.add(new THREE.SphereGeometry(0.34, 20, 16), WHITE, { p: [0, 0.08, 0] });
-    b.add(new THREE.SphereGeometry(0.29, 18, 12, -Math.PI * 0.42, Math.PI * 0.84, Math.PI * 0.22, Math.PI * 0.42), VISOR, { p: [0, 0.08, 0.075] }, 0.25);
+    // (phi is measured from -X, so start at 0.08π to center the visor on the front, +Z)
+    b.add(new THREE.SphereGeometry(0.29, 18, 12, Math.PI * 0.08, Math.PI * 0.84, Math.PI * 0.22, Math.PI * 0.42), VISOR, { p: [0, 0.08, 0.075] }, 0.25);
     b.add(new THREE.CylinderGeometry(0.2, 0.24, 0.08, 14), GRAY, { p: [0, -0.24, 0] });
     b.add(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 6), GRAY, { p: [0.22, 0.4, -0.05] });
     b.add(new THREE.SphereGeometry(0.04, 8, 6), 0xff4040, { p: [0.22, 0.51, -0.05] }, 1.4);

@@ -5,7 +5,6 @@
 
 import * as THREE from 'three';
 import { GeoBuilder, toonMaterial, addOutline, glowSprite } from './toon.js';
-import { pathQuery, ZONES, TOWER } from './layout.js';
 import { clamp, lerp, rand, damp, dampAngle, wrapAngle, randSign } from './util.js';
 
 export const ALIEN_TYPES = {
@@ -331,14 +330,17 @@ function segSeg(p0, p1, q0, q1, out) {
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _seg = { s: 0, t: 0, d2: 0 };
-const _q = {};
 
 export class Alien {
-    constructor(game, def, zone, index) {
+    constructor(game, def, zone, index, mgr) {
         this.game = game;
+        this.mgr = mgr;
         this.def = def;
         this.zone = zone;
         this.index = index;
+        // Aliens in wave 1, 2... teleport in later (see AlienManager.startWave)
+        this.wave = def.wave || 0;
+        this.spawned = this.wave === 0;
         this.typeId = def.type;
         this.T = ALIEN_TYPES[def.type];
         this.model = createAlienModel(def.type);
@@ -348,6 +350,7 @@ export class Alien {
         this.home = new THREE.Vector3();
         this.capA = new THREE.Vector3();
         this.capB = new THREE.Vector3();
+        this.aimAt = new THREE.Vector3();
         this.tower = !!def.tower;
         this.dead = false;
         this.gone = false;
@@ -390,7 +393,8 @@ export class Alien {
         this.shieldDelay = 0;
         this.state = 'idle';
         this.stateT = 0;
-        this.yaw = rand(-0.9, 0.9); // face roughly south, toward where the player comes from
+        // face roughly south (toward where the player comes from) unless the level says otherwise
+        this.yaw = d.yaw != null ? d.yaw + rand(-0.4, 0.4) : rand(-0.9, 0.9);
         this.wanderTarget = null;
         this.wanderT = rand(1, 4);
         this.cooldown = rand(1.0, 2.0);
@@ -412,7 +416,10 @@ export class Alien {
         this.shieldFlare = 0;
         this.model.setTint(0);
         this.root.rotation.set(0, this.yaw, 0);
-        this.root.visible = this.game.aliens ? this.game.aliens.activeZones.has(this.zone) : false;
+        this.root.scale.setScalar(1);
+        this.spawnT = 0;
+        this.dormant = !this.spawned;
+        this.root.visible = !this.dormant && this.mgr.activeZones.has(this.zone);
         this.model.move = 0;
         this.model.aim = 0;
         this.model.flinch = 0;
@@ -434,7 +441,7 @@ export class Alien {
 
     // Segment hit test (for bolts). Returns t along the segment or -1.
     hitSegment(a, b, pad) {
-        if (this.dead) return -1;
+        if (this.dead || this.dormant || this.spawnT > 0) return -1;
         const r = this.radius + pad;
         segSeg(a, b, this.capA, this.capB, _seg);
         if (_seg.d2 < r * r) return _seg.s;
@@ -446,7 +453,7 @@ export class Alien {
     }
 
     alertTo(delay = 0) {
-        if (this.dead || this.state === 'combat' || this.state === 'alert') return;
+        if (this.dead || this.dormant || this.state === 'combat' || this.state === 'alert') return;
         this.state = 'alert';
         this.stateT = -delay;
         this.alertShown = false;
@@ -484,8 +491,23 @@ export class Alien {
             this.lastSeen.copy(g.player.pos);
             this.model.showAlert();
         }
-        g.aliens.alertNearby(this, 30);
+        this.mgr.alertNearby(this, 30);
         return false;
+    }
+
+    // Beam in from a teleport pad (wave aliens)
+    teleportIn() {
+        const g = this.game;
+        this.spawned = true;
+        this.dormant = false;
+        this.spawnT = 0.9;
+        this.root.visible = this.mgr.activeZones.has(this.zone);
+        this.root.scale.setScalar(0.05);
+        this.model.setTint(0);
+        g.effects.beamColumn(this.pos.x, this.pos.y, this.pos.z, 0x9ff6ff, 1.1, 7, 1.0);
+        g.effects.sparks(this.pos.x, this.pos.y + 1.2, this.pos.z, 0x9ff6ff, 18, 5, 0.16);
+        g.effects.ring(this.pos.x, this.pos.y + 0.08, this.pos.z, 0x9ff6ff, 3.2, 0.6);
+        g.audio.play('teleport', this.pos);
     }
 
     die() {
@@ -506,6 +528,22 @@ export class Alien {
         const m = this.model;
         const T = this.T;
 
+        if (this.dormant) return;
+        if (this.spawnT > 0) {
+            // materializing: grow in with a little bounce, then spot the player
+            this.spawnT -= dt;
+            const k = clamp(1 - this.spawnT / 0.9, 0, 1);
+            this.root.scale.setScalar(k < 0.75 ? k / 0.75 * 1.12 : 1.12 - (k - 0.75) * 0.48);
+            this.model.setTint(0);
+            m.animate(dt, 0);
+            if (this.spawnT <= 0) {
+                this.root.scale.setScalar(1);
+                this.alertTo(0);
+                this.lastSeen.copy(g.player.pos);
+            }
+            this.updateTransform();
+            return;
+        }
         if (this.dead) {
             this.dyingT += dt;
             const k = Math.min(this.dyingT / 0.4, 1);
@@ -557,7 +595,7 @@ export class Alien {
             const chestY = P.pos.y + 1.15;
             // can I actually hit you from here? (same line my plasma would fly along)
             this.canSee = !P.dead && dist < diff.sight * (this.state === 'combat' ? 1.6 : 1) &&
-                g.world.terrain.lineOfSight(this.pos.x, gunY, this.pos.z, P.pos.x, chestY, P.pos.z) &&
+                g.world.lineOfSight(this.pos.x, gunY, this.pos.z, P.pos.x, chestY, P.pos.z) &&
                 !g.world.segmentHitsGate(this.pos.x, eyeY, this.pos.z, pe.x, pe.y, pe.z);
         }
         if (this.canSee) {
@@ -582,7 +620,7 @@ export class Alien {
                 case 'idle': {
                     if (this.canSee) {
                         this.alertTo(0);
-                        g.aliens.alertNearby(this, 26, 0.6);
+                        this.mgr.alertNearby(this, 26, 0.6);
                         break;
                     }
                     m.aim = damp(m.aim, 0, 4, dt);
@@ -669,20 +707,12 @@ export class Alien {
                 this.pos.x = this.home.x + (hx / hd) * T.leash;
                 this.pos.z = this.home.z + (hz / hd) * T.leash;
             }
-            // stay in the canyon
-            const q = pathQuery(this.pos.x, this.pos.z, _q);
-            if (q.sd > -1.5) {
-                const cx = q.cx, cz = q.cz;
-                const ox = this.pos.x - cx, oz = this.pos.z - cz;
-                const ol = Math.hypot(ox, oz) || 1;
-                const lim = q.hw - 1.5;
-                this.pos.x = cx + (ox / ol) * lim;
-                this.pos.z = cz + (oz / ol) * lim;
-            }
+            // stay in the canyon (or the mothership's rooms)
+            g.world.confineAlien(this.pos, this.radius);
             g.world.colliders.resolve(this.pos, this.radius, 2, -1);
             g.world.blockByGates(this.pos, 0.7);
             g.world.domeBlocks(this.pos, 0.7);
-            g.aliens.separate(this);
+            this.mgr.separate(this);
             // gravity / hop
             const ground = g.world.groundAt(this.pos.x, this.pos.z);
             this.vy -= 13 * dt;
@@ -775,17 +805,20 @@ export class Alien {
 // Manager
 // ------------------------------------------------------------
 export class AlienManager {
-    constructor(game) {
+    // zones: [{ name, aliens: [{ type, x, z, wave?, yaw?, tower? }] }]
+    constructor(game, zones) {
         this.game = game;
+        this.zones = zones;
         this.list = [];
-        this.byZone = ZONES.map(() => []);
+        this.byZone = zones.map(() => []);
         this.activeZones = new Set();
+        this.boss = null; // the mothership's big boss joins the hit tests (see boss.js)
     }
 
     build() {
-        ZONES.forEach((zn, zi) => {
+        this.zones.forEach((zn, zi) => {
             zn.aliens.forEach((def, i) => {
-                const a = new Alien(this.game, def, zi, i);
+                const a = new Alien(this.game, def, zi, i, this);
                 a.root.visible = false;
                 this.game.scene.add(a.root);
                 this.list.push(a);
@@ -799,6 +832,8 @@ export class AlienManager {
         for (const a of this.byZone[zi]) {
             a.dead = true;
             a.gone = true;
+            a.spawned = true;
+            a.dormant = false;
             a.root.visible = false;
         }
     }
@@ -813,20 +848,40 @@ export class AlienManager {
         return n;
     }
 
+    // Aliens of one wave still standing (or still waiting to teleport in)
+    aliveInWave(zi, wave) {
+        let n = 0;
+        for (const a of this.byZone[zi]) if (!a.dead && a.wave === wave) n++;
+        return n;
+    }
+
+    waveCount(zi) {
+        let n = 0;
+        for (const a of this.byZone[zi]) n = Math.max(n, a.wave + 1);
+        return n;
+    }
+
+    // Teleport in every alien of a wave
+    startWave(zi, wave) {
+        for (const a of this.byZone[zi]) {
+            if (a.wave === wave && !a.dead && a.dormant) a.teleportIn();
+        }
+    }
+
     captain() {
         return this.list.find((a) => a.T.boss);
     }
 
     alertNearby(src, radius, delayMax = 0.4) {
         for (const a of this.byZone[src.zone]) {
-            if (a === src || a.dead || a.state !== 'idle') continue;
+            if (a === src || a.dead || a.dormant || a.state !== 'idle') continue;
             if (a.pos.distanceTo(src.pos) < radius) a.alertTo(rand(0.1, delayMax));
         }
     }
 
     separate(a) {
         for (const b of this.byZone[a.zone]) {
-            if (b === a || b.dead) continue;
+            if (b === a || b.dead || b.dormant) continue;
             const dx = a.pos.x - b.pos.x, dz = a.pos.z - b.pos.z;
             const d = Math.hypot(dx, dz);
             const min = a.radius + b.radius + 0.3;
@@ -838,7 +893,7 @@ export class AlienManager {
         }
     }
 
-    // Closest alien hit by a segment
+    // Closest alien (or the boss) hit by a segment
     segmentHit(a, b, pad = 0.15) {
         let best = null, bestT = 2;
         for (const al of this.list) {
@@ -846,26 +901,41 @@ export class AlienManager {
             const t = al.hitSegment(a, b, pad);
             if (t >= 0 && t < bestT) { bestT = t; best = al; }
         }
+        if (this.boss) {
+            const t = this.boss.hitSegment(a, b, pad);
+            if (t >= 0 && t < bestT) { bestT = t; best = this.boss; }
+        }
         return best ? { alien: best, t: bestT } : null;
     }
 
     // For aim assist: alien nearest to the aim ray within maxAngle.
-    // Sets alien.aimY to the chest, or the head if only the head peeks over a rock/ridge.
+    // Sets target.aimAt to the chest, or the head if only the head peeks over a rock/ridge.
     aimTarget(origin, dir, maxAngle, maxDist = 90, checkCover = false) {
         let best = null, bestA = maxAngle;
-        const T = this.game.world.terrain;
+        const W = this.game.world;
+        const test = (p) => {
+            if (checkCover && !W.lineOfSight(origin.x, origin.y, origin.z, p.x, p.y, p.z)) return -1;
+            _v2.subVectors(p, origin);
+            const d = _v2.length();
+            if (d > maxDist || d < 1) return 9;
+            return Math.acos(clamp(_v2.dot(dir) / d, -1, 1));
+        };
         for (const al of this.list) {
-            if (al.dead || !al.root.visible) continue;
+            if (al.dead || al.dormant || al.spawnT > 0 || !al.root.visible) continue;
             for (const h of [1.25, 1.85]) {
                 _v.set(al.pos.x, al.pos.y + h * al.T.scale, al.pos.z);
-                if (checkCover && !T.lineOfSight(origin.x, origin.y, origin.z, _v.x, _v.y, _v.z)) continue;
-                _v.sub(origin);
-                const d = _v.length();
-                if (d > maxDist || d < 1) break;
-                const ang = Math.acos(clamp(_v.dot(dir) / d, -1, 1));
-                if (ang < bestA) { bestA = ang; best = al; al.aimY = h; }
+                const ang = test(_v);
+                if (ang < 0) continue;
+                if (ang < bestA) { bestA = ang; best = al; al.aimAt.copy(_v); }
                 break;
             }
+        }
+        const B = this.boss;
+        if (B && B.targetable()) {
+            B.aimPoint(_v);
+            const ang = test(_v);
+            // the boss's eye is big: be a bit more generous with it
+            if (ang >= 0 && ang < Math.max(bestA, maxAngle * 1.3) && (!best || ang < bestA)) { best = B; B.aimAt.copy(_v); }
         }
         return best;
     }
@@ -873,7 +943,7 @@ export class AlienManager {
     damageRadius(pos, radius, dmg) {
         let kills = 0;
         for (const al of this.list) {
-            if (al.dead || !al.root.visible) continue;
+            if (al.dead || al.dormant || al.spawnT > 0 || !al.root.visible) continue;
             const d = _v.set(al.pos.x, al.pos.y + 1, al.pos.z).distanceTo(pos);
             if (d < radius) {
                 const amt = Math.max(1, Math.round(dmg * (1 - (d / radius) * 0.6)));
@@ -887,25 +957,28 @@ export class AlienManager {
                 if (al.onGround) al.vy = 3;
             }
         }
+        if (this.boss) this.boss.blast(pos, radius, dmg);
         return kills;
     }
 
     setZoneActive(zi, on) {
         for (const a of this.byZone[zi]) {
-            if (!a.gone) a.root.visible = on;
+            if (!a.gone && !a.dormant) a.root.visible = on;
         }
         if (on) this.activeZones.add(zi); else this.activeZones.delete(zi);
     }
 
     anyInCombat() {
-        for (const zi of this.activeZones) for (const a of this.byZone[zi]) if (!a.dead && (a.state === 'combat' || a.state === 'alert')) return true;
+        for (const zi of this.activeZones) {
+            for (const a of this.byZone[zi]) if (!a.dead && !a.dormant && (a.state === 'combat' || a.state === 'alert')) return true;
+        }
         return false;
     }
 
     update(dt) {
         for (const zi of this.activeZones) {
             for (const a of this.byZone[zi]) {
-                if (a.gone) continue;
+                if (a.gone || a.dormant) continue;
                 a.update(dt);
             }
         }

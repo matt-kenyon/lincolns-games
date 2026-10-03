@@ -305,6 +305,8 @@ export function shieldMaterial(color, scaleU, scaleV) {
     });
 }
 
+const _q = {};
+
 // ============================================================
 export class World {
     constructor(game) {
@@ -336,6 +338,90 @@ export class World {
 
     groundAt(x, z) {
         return this.terrain.heightAt(x, z);
+    }
+
+    // --------------------------------------------------------
+    // The "world" interface the player, aliens and bolts use.
+    // The alien mothership (mothership.js) has the same methods.
+    // --------------------------------------------------------
+    get sunDir() {
+        return SUN_DIR;
+    }
+
+    normalAt(x, z, out) {
+        return this.terrain.normalAt(x, z, out);
+    }
+
+    ceilingAt() {
+        return Infinity;
+    }
+
+    lineOfSight(ax, ay, az, bx, by, bz) {
+        return this.terrain.lineOfSight(ax, ay, az, bx, by, bz);
+    }
+
+    // Keep the player in the canyon. Returns how far along the path they are.
+    confinePlayer(pos) {
+        const q = pathQuery(pos.x, pos.z, _q);
+        if (q.sd > 1.0) {
+            const ox = pos.x - q.cx, oz = pos.z - q.cz;
+            const ol = Math.hypot(ox, oz) || 1;
+            const lim = q.hw + 1.0;
+            pos.x = q.cx + (ox / ol) * lim;
+            pos.z = q.cz + (oz / ol) * lim;
+        }
+        return q.s;
+    }
+
+    // Aliens stay down on the canyon floor
+    confineAlien(pos) {
+        const q = pathQuery(pos.x, pos.z, _q);
+        if (q.sd > -1.5) {
+            const ox = pos.x - q.cx, oz = pos.z - q.cz;
+            const ol = Math.hypot(ox, oz) || 1;
+            const lim = q.hw - 1.5;
+            pos.x = q.cx + (ox / ol) * lim;
+            pos.z = q.cz + (oz / ol) * lim;
+        }
+    }
+
+    // Where something flying from a to b hits the ground (or null)
+    solidHit(a, b) {
+        const gy = this.terrain.heightAt(b.x, b.z);
+        return b.y < gy ? { x: b.x, y: gy + 0.05, z: b.z, dust: true } : null;
+    }
+
+    // Top-down picture of the canyon for the minimap (made once)
+    mapImage() {
+        if (this._map) return this._map;
+        const T = this.terrain;
+        const W = T.W, H = T.H;
+        const c = document.createElement('canvas');
+        c.width = W;
+        c.height = H;
+        const ctx = c.getContext('2d');
+        const img = ctx.createImageData(W, H);
+        const col = new THREE.Color();
+        const n = new THREE.Vector3();
+        const L = new THREE.Vector3(-0.5, 0.7, -0.3).normalize();
+        for (let j = 0; j < H; j++) {
+            for (let i = 0; i < W; i++) {
+                const idx = j * W + i;
+                col.setRGB(T.colors[idx * 3], T.colors[idx * 3 + 1], T.colors[idx * 3 + 2]);
+                col.convertLinearToSRGB();
+                T.gridNormal(i, j, n);
+                let shade = 0.65 + 0.5 * Math.max(0, n.dot(L));
+                if (T.sd[idx] > 2) shade *= 0.6;
+                const k = idx * 4;
+                img.data[k] = clamp(col.r * 255 * shade, 0, 255);
+                img.data[k + 1] = clamp(col.g * 255 * shade, 0, 255);
+                img.data[k + 2] = clamp(col.b * 255 * shade, 0, 255);
+                img.data[k + 3] = 255;
+            }
+        }
+        ctx.putImageData(img, 0, 0);
+        this._map = { canvas: c, x0: WORLD.x0, z0: WORLD.z0, scale: 1 / T.cell, bg: '#6b3424' };
+        return this._map;
     }
 
     // --------------------------------------------------------

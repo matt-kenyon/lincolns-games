@@ -46,6 +46,12 @@ export class AudioEngine {
         this.amb = ctx.createGain();
         this.amb.gain.value = 0;
         this.amb.connect(this.master);
+        // Mars wind or the mothership's engine hum
+        this.windBus = ctx.createGain();
+        this.windBus.connect(this.amb);
+        this.humBus = ctx.createGain();
+        this.humBus.gain.value = 0;
+        this.humBus.connect(this.amb);
 
         // reverb
         this.reverb = ctx.createConvolver();
@@ -65,6 +71,8 @@ export class AudioEngine {
         for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
 
         this.startWind();
+        this.startHum();
+        this.setAmbience(this.ambience || 'wind');
         this.music = new Music(this);
         if (this.pendingMode) this.setMusic(this.pendingMode);
     }
@@ -106,6 +114,15 @@ export class AudioEngine {
 
     setAmbient(level) {
         if (this.amb) this.amb.gain.setTargetAtTime(level, this.ctx.currentTime, 0.8);
+    }
+
+    // 'wind' on Mars, 'ship' inside the mothership
+    setAmbience(kind) {
+        this.ambience = kind;
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        this.windBus.gain.setTargetAtTime(kind === 'ship' ? 0 : 1, t, 0.8);
+        this.humBus.gain.setTargetAtTime(kind === 'ship' ? 1 : 0, t, 0.8);
     }
 
     setMusic(mode) {
@@ -265,10 +282,100 @@ export class AudioEngine {
         lg2.connect(g.gain);
         src.connect(bp);
         bp.connect(g);
-        g.connect(this.amb);
+        g.connect(this.windBus);
         src.start();
         lfo.start();
         lfo2.start();
+    }
+
+    // The mothership: a deep engine drone, hissing air vents, and a slow thump in the walls
+    startHum() {
+        const ctx = this.ctx;
+        const out = this.humBus;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 160;
+        lp.Q.value = 2;
+        const g = ctx.createGain();
+        g.gain.value = 0.15;
+        for (const f of [41, 41.6, 82.3]) {
+            const o = ctx.createOscillator();
+            o.type = 'sawtooth';
+            o.frequency.value = f;
+            o.connect(lp);
+            o.start();
+        }
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 0.11;
+        const lg = ctx.createGain();
+        lg.gain.value = 60;
+        lfo.connect(lg);
+        lg.connect(lp.frequency);
+        lfo.start();
+        lp.connect(g);
+        g.connect(out);
+        const src = ctx.createBufferSource();
+        src.buffer = this.noiseBuf;
+        src.loop = true;
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 900;
+        bp.Q.value = 0.4;
+        const ng = ctx.createGain();
+        ng.gain.value = 0.03;
+        src.connect(bp);
+        bp.connect(ng);
+        ng.connect(out);
+        src.start();
+        this.humTimer = setInterval(() => {
+            if (this.ambience !== 'ship' || !this.ctx || this.ctx.state !== 'running') return;
+            const t = this.ctx.currentTime + 0.02;
+            this.osc(out, { t, f: 52, f2: 38, dur: 0.5, vol: 0.12 });
+            this.osc(out, { t: t + 0.32, f: 47, f2: 35, dur: 0.5, vol: 0.08 });
+            if (Math.random() < 0.3) this.osc(out, { t: t + rnd(0.5, 1.5), type: 'triangle', f: rnd(900, 1500), f2: rnd(400, 800), dur: 0.5, vol: 0.012, rev: true });
+        }, 2400);
+    }
+
+    // Tractor beam: a wobbly hum that rises as it reels you in
+    tractor(on) {
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        if (on && !this.tb) {
+            const t = ctx.currentTime;
+            const o = ctx.createOscillator();
+            o.frequency.value = 90;
+            const o2 = ctx.createOscillator();
+            o2.type = 'triangle';
+            o2.frequency.value = 181;
+            const vib = ctx.createOscillator();
+            vib.frequency.value = 5.5;
+            const vg = ctx.createGain();
+            vg.gain.value = 9;
+            vib.connect(vg);
+            vg.connect(o.frequency);
+            vg.connect(o2.frequency);
+            const sh = ctx.createOscillator();
+            sh.frequency.value = 1240;
+            const sg = ctx.createGain();
+            sg.gain.value = 0.12;
+            const g = ctx.createGain();
+            g.gain.value = 0;
+            sh.connect(sg);
+            sg.connect(g);
+            o.connect(g);
+            o2.connect(g);
+            g.connect(this.sfx);
+            g.gain.setTargetAtTime(0.16, t, 0.3);
+            o.frequency.setTargetAtTime(150, t, 6);
+            o2.frequency.setTargetAtTime(300, t, 6);
+            for (const x of [o, o2, vib, sh]) x.start();
+            this.tb = { g, nodes: [o, o2, vib, sh] };
+        } else if (!on && this.tb) {
+            const tb = this.tb;
+            this.tb = null;
+            tb.g.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+            setTimeout(() => tb.nodes.forEach((n) => n.stop()), 1500);
+        }
     }
 
     // Rocket engine rumble for cutscenes (level 0..1)
@@ -363,7 +470,10 @@ export class AudioEngine {
 }
 
 // minimum seconds between repeats of the same sound
-const GAP = { step: 0.12, boltHit: 0.05, alienShoot: 0.04, alienHurt: 0.05, shieldZap: 0.08, bounce: 0.08, playerShieldHit: 0.06 };
+const GAP = {
+    step: 0.12, boltHit: 0.05, alienShoot: 0.04, alienHurt: 0.05, shieldZap: 0.08, bounce: 0.08, playerShieldHit: 0.06,
+    teleport: 0.05, armorClank: 0.06, laserBuzz: 0.08, bossHurt: 0.06, explosion: 0.1,
+};
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
@@ -548,6 +658,152 @@ const SFX = {
     typing(A, out, t) {
         A.osc(out, { t, type: 'square', f: rnd(1300, 1600), dur: 0.02, vol: 0.012, lp: 3000 });
     },
+
+    // ---------------- level 2: the mothership ----------------
+    teleport(A, out, t) {
+        A.osc(out, { t, f: 300, f2: 2400, dur: 0.55, vol: 0.09, vib: [30, 60] });
+        A.osc(out, { t: t + 0.05, type: 'triangle', f: 1200, f2: 3600, dur: 0.45, vol: 0.04, rev: true });
+        A.noise(out, { t, type: 'highpass', f: 3000, f2: 9000, dur: 0.5, vol: 0.06 });
+    },
+    waveAlarm(A, out, t) {
+        for (let i = 0; i < 2; i++) {
+            A.osc(out, { t: t + i * 0.32, type: 'square', f: 740, dur: 0.14, vol: 0.06, lp: 2600 });
+            A.osc(out, { t: t + i * 0.32 + 0.15, type: 'square', f: 988, dur: 0.14, vol: 0.06, lp: 2600 });
+        }
+    },
+    doorSlam(A, out, t) {
+        A.osc(out, { t, f: 90, f2: 35, dur: 0.6, vol: 0.45 });
+        A.noise(out, { t, type: 'lowpass', f: 1200, f2: 120, dur: 0.5, vol: 0.4 });
+        A.osc(out, { t: t + 0.02, type: 'triangle', f: 420, dur: 0.9, vol: 0.05, rev: true });
+        A.osc(out, { t, type: 'sawtooth', f: 1400, f2: 300, dur: 0.25, vol: 0.05, lp: 3000 });
+    },
+    doorOpen(A, out, t) {
+        A.noise(out, { t, f: 600, f2: 2400, dur: 0.6, vol: 0.14 });
+        A.osc(out, { t: t + 0.4, type: 'triangle', f: 880, dur: 0.4, vol: 0.06, rev: true });
+        A.osc(out, { t: t + 0.5, type: 'triangle', f: 1320, dur: 0.5, vol: 0.06, rev: true });
+    },
+    armorClank(A, out, t) {
+        const k = rnd(0.9, 1.15);
+        A.osc(out, { t, type: 'square', f: 1700 * k, f2: 1100 * k, dur: 0.07, vol: 0.05, lp: 4000 });
+        A.osc(out, { t, type: 'triangle', f: 2600 * k, dur: 0.18, vol: 0.03, rev: true });
+        A.noise(out, { t, type: 'highpass', f: 5000, dur: 0.04, vol: 0.05 });
+    },
+    bossHurt(A, out, t) {
+        const k = rnd(0.9, 1.1);
+        A.osc(out, { t, f: 420 * k, f2: 140 * k, dur: 0.22, vol: 0.2, vib: [22, 40] });
+        A.osc(out, { t, type: 'triangle', f: 900 * k, f2: 300 * k, dur: 0.12, vol: 0.08 });
+    },
+    bossRoar(A, out, t) {
+        A.osc(out, { t, type: 'sawtooth', f: 120, f2: 70, dur: 2.0, vol: 0.28, a: 0.08, lp: 900, vib: [7, 14], rev: true });
+        A.osc(out, { t, type: 'sawtooth', f: 181, f2: 96, dur: 1.9, vol: 0.18, a: 0.1, lp: 1300, vib: [5.5, 10] });
+        A.noise(out, { t, type: 'bandpass', f: 700, f2: 300, dur: 1.9, vol: 0.32, q: 1.2, a: 0.08 });
+        A.noise(out, { t, type: 'lowpass', f: 300, dur: 2.2, vol: 0.3, a: 0.2 });
+        for (let i = 0; i < 6; i++) A.syllable(out, t + i * 0.22, rnd(80, 110), 0.3, rnd(500, 900), 0.09);
+    },
+    bossSlamWarn(A, out, t) {
+        A.noise(out, { t, f: 200, f2: 1600, dur: 0.8, vol: 0.14, q: 2 });
+        A.osc(out, { t, f: 140, f2: 420, dur: 0.8, vol: 0.06 });
+    },
+    bossSlam(A, out, t) {
+        A.osc(out, { t, f: 110, f2: 28, dur: 0.9, vol: 0.6 });
+        A.noise(out, { t, type: 'lowpass', f: 1600, f2: 90, dur: 0.8, vol: 0.5 });
+        A.noise(out, { t, f: 2400, dur: 0.12, vol: 0.2 });
+        A.osc(out, { t: t + 0.05, f: 55, f2: 30, dur: 1.4, vol: 0.25 });
+    },
+    bossGurgle(A, out, t) {
+        for (let i = 0; i < 9; i++) A.osc(out, { t: t + i * 0.07 + rnd(0, 0.03), f: rnd(180, 420), f2: rnd(500, 900), dur: 0.09, vol: 0.09 });
+        A.noise(out, { t, type: 'lowpass', f: 500, dur: 0.7, vol: 0.12 });
+    },
+    bossSpit(A, out, t) {
+        A.noise(out, { t, type: 'lowpass', f: 2200, f2: 300, dur: 0.35, vol: 0.32 });
+        A.osc(out, { t, f: 600, f2: 160, dur: 0.25, vol: 0.18 });
+        A.osc(out, { t: t + 0.05, f: 300, f2: 900, dur: 0.15, vol: 0.06 });
+    },
+    laserCharge(A, out, t) {
+        A.osc(out, { t, f: 220, f2: 1500, dur: 1.25, vol: 0.08, a: 0.05, vib: [18, 30] });
+        A.osc(out, { t, type: 'triangle', f: 440, f2: 3000, dur: 1.25, vol: 0.03 });
+    },
+    laserFire(A, out, t) {
+        A.osc(out, { t, type: 'sawtooth', f: 1400, f2: 700, dur: 0.5, vol: 0.12, lp: 3500 });
+        A.noise(out, { t, type: 'highpass', f: 2500, dur: 0.6, vol: 0.12 });
+        A.osc(out, { t, f: 90, f2: 60, dur: 0.6, vol: 0.2 });
+    },
+    laserBuzz(A, out, t) {
+        A.osc(out, { t, type: 'sawtooth', f: rnd(600, 760), dur: 0.12, vol: 0.05, lp: 2500 });
+    },
+    bossDie(A, out, t) {
+        A.osc(out, { t, f: 900, f2: 70, dur: 2.8, vol: 0.2, vib: [9, 60], glide: 2.6 });
+        A.osc(out, { t, type: 'sawtooth', f: 160, f2: 40, dur: 2.6, vol: 0.12, lp: 800 });
+        for (let i = 0; i < 12; i++) A.osc(out, { t: t + 0.6 + i * 0.16, f: rnd(200, 500), f2: rnd(600, 1000), dur: 0.1, vol: 0.06 });
+    },
+    bigPoof(A, out, t) {
+        A.noise(out, { t, f: 2400, f2: 200, dur: 1.2, vol: 0.45, q: 0.7 });
+        A.osc(out, { t, f: 80, f2: 30, dur: 1.0, vol: 0.4 });
+        [1047, 1319, 1568, 2093].forEach((f, i) => A.osc(out, { t: t + 0.15 + i * 0.06, type: 'triangle', f, dur: 0.8, vol: 0.05, rev: true }));
+    },
+    grrr(A, out, t) {
+        // the ship's engine straining against something...
+        A.osc(out, { t, type: 'sawtooth', f: 58, f2: 46, dur: 1.1, vol: 0.3, lp: 500, vib: [11, 8], a: 0.05 });
+        A.osc(out, { t, type: 'square', f: 87, f2: 70, dur: 1.0, vol: 0.08, lp: 400, vib: [13, 6] });
+        A.noise(out, { t, type: 'lowpass', f: 700, dur: 1.0, vol: 0.18, a: 0.05 });
+    },
+    lurch(A, out, t) {
+        A.osc(out, { t, f: 140, f2: 40, dur: 0.6, vol: 0.4 });
+        A.noise(out, { t, f: 600, f2: 2400, dur: 0.3, vol: 0.2 });
+        A.osc(out, { t: t + 0.25, type: 'square', f: 220, f2: 90, dur: 0.35, vol: 0.12, lp: 1200 });
+        A.osc(out, { t: t + 0.3, type: 'triangle', f: 520, dur: 0.8, vol: 0.05, rev: true });
+    },
+    sting(A, out, t) {
+        // dun-dun-DUNNN!
+        for (const n of [38, 50, 53, 56, 62]) A.osc(out, { t, type: 'sawtooth', f: NOTE(n), dur: 1.8, vol: 0.06, lp: 1800, a: 0.01, rev: true });
+        A.osc(out, { t, f: 70, f2: 38, dur: 1.2, vol: 0.45 });
+        A.noise(out, { t, type: 'highpass', f: 5000, dur: 1.4, vol: 0.08, rev: true });
+    },
+    click(A, out, t) {
+        A.osc(out, { t, type: 'square', f: 2400, dur: 0.02, vol: 0.06, lp: 5000 });
+        A.noise(out, { t, type: 'highpass', f: 4000, dur: 0.03, vol: 0.06 });
+    },
+    bigButton(A, out, t) {
+        A.osc(out, { t, type: 'square', f: 300, f2: 120, dur: 0.12, vol: 0.12, lp: 1500 });
+        A.noise(out, { t, f: 900, dur: 0.06, vol: 0.12 });
+        A.osc(out, { t: t + 0.12, type: 'square', f: 880, dur: 0.25, vol: 0.06, lp: 2600 });
+    },
+    countBeep(A, out, t) {
+        A.osc(out, { t, type: 'square', f: 1320, dur: 0.16, vol: 0.06, lp: 3000 });
+        A.osc(out, { t, f: 2640, dur: 0.12, vol: 0.03 });
+    },
+    rumble(A, out, t) {
+        A.noise(out, { t, type: 'lowpass', f: 220, dur: 3.0, vol: 0.5, a: 0.6, hold: 1.2 });
+        A.osc(out, { t, f: 38, f2: 30, dur: 3.0, vol: 0.25, a: 0.6 });
+    },
+    splash(A, out, t) {
+        A.noise(out, { t, type: 'lowpass', f: 2600, f2: 250, dur: 0.6, vol: 0.4 });
+        A.osc(out, { t, f: 260, f2: 90, dur: 0.4, vol: 0.2 });
+        for (let i = 0; i < 4; i++) A.osc(out, { t: t + 0.1 + i * 0.06, f: rnd(300, 600), f2: rnd(700, 1100), dur: 0.08, vol: 0.05 });
+    },
+    bossRise(A, out, t) {
+        A.noise(out, { t, type: 'lowpass', f: 160, f2: 600, dur: 3.4, vol: 0.4, a: 0.5 });
+        for (const n of [26, 33, 38]) A.osc(out, { t, type: 'sawtooth', f: NOTE(n), dur: 3.4, vol: 0.06, a: 1.5, lp: 600, rev: true });
+    },
+    eyeOpen(A, out, t) {
+        A.osc(out, { t: t + 0.5, f: 200, f2: 700, dur: 0.18, vol: 0.12 });
+        A.noise(out, { t: t + 0.5, type: 'highpass', f: 3000, dur: 0.2, vol: 0.05 });
+    },
+    titleSting(A, out, t) {
+        for (const n of [50, 53, 57, 62, 65]) A.osc(out, { t: t + 0.45, type: 'square', f: NOTE(n), dur: 1.6, vol: 0.035, lp: 2200, rev: true });
+        A.noise(out, { t: t + 0.45, type: 'highpass', f: 6000, f2: 3000, dur: 2.0, vol: 0.1, rev: true });
+        A.osc(out, { t: t + 0.45, f: 80, f2: 40, dur: 0.8, vol: 0.4 });
+    },
+    podLaunch(A, out, t) {
+        A.noise(out, { t, f: 300, f2: 3000, dur: 1.6, vol: 0.35, a: 0.05 });
+        A.osc(out, { t, type: 'sawtooth', f: 60, f2: 160, dur: 1.6, vol: 0.2, lp: 700 });
+    },
+    mothershipBoom(A, out, t) {
+        A.osc(out, { t, f: 70, f2: 18, dur: 4.0, vol: 0.7 });
+        A.noise(out, { t, type: 'lowpass', f: 1600, f2: 60, dur: 4.5, vol: 0.7 });
+        A.noise(out, { t, f: 3000, dur: 0.4, vol: 0.3 });
+        for (let i = 0; i < 6; i++) A.noise(out, { t: t + 0.4 + i * 0.35, type: 'lowpass', f: 800, f2: 100, dur: 0.8, vol: 0.25 });
+    },
 };
 
 // ------------------------------------------------------------
@@ -557,13 +813,15 @@ const PENTA = [62, 64, 66, 69, 71, 74, 76, 78, 81, 83]; // D major pentatonic (D
 const PADS = [[50, 57, 62, 66], [43, 50, 55, 59], [47, 54, 59, 62], [45, 52, 57, 61]]; // D, G, Bm, A
 const COMBAT_ROOTS = [38, 34, 36, 33]; // D, Bb, C, A (bass, MIDI)
 const COMBAT_CHORDS = [[62, 65, 69], [58, 62, 65], [60, 64, 67], [57, 61, 64]];
+const SHIP_CHORDS = [[62, 65, 69, 76], [58, 62, 65, 72], [55, 58, 62, 69], [57, 61, 64, 71]]; // Dm, Bb, Gm, A
+const BOSS_RIFF = [38, 38, 50, 38, 41, 38, 49, 38, 44, 38, 50, 43, 38, 44, 45, 47];
 
 class Music {
     constructor(A) {
         this.A = A;
         const ctx = A.ctx;
         this.layers = {};
-        for (const name of ['explore', 'combat', 'boss', 'intro', 'theme']) {
+        for (const name of ['explore', 'combat', 'boss', 'intro', 'theme', 'ship', 'boss2']) {
             const g = ctx.createGain();
             g.gain.value = 0;
             g.connect(A.musicBus);
@@ -588,6 +846,8 @@ class Music {
             boss: mode === 'boss' ? 1.4 : 0,
             intro: mode === 'intro' ? 1 : 0,
             theme: mode === 'theme' ? 1 : 0,
+            ship: mode === 'ship' ? 1 : 0,
+            boss2: mode === 'boss2' ? 1.35 : 0,
         };
         for (const k in want) {
             this.layers[k].gain.cancelScheduledValues(t);
@@ -595,6 +855,7 @@ class Music {
             if (want[k] && !this.target[k]) {
                 if (k === 'combat' || k === 'boss') { this.seqNext = t + 0.05; this.step = 0; }
                 if (k === 'theme') { this.themeStart = t + 0.2; this.themeNext = 0; }
+                if (k === 'boss2') { this.b2Next = t + 0.05; this.b2Step = 0; }
                 if (k === 'explore') this.pianoNext = Math.max(this.pianoNext, t + 0.3);
             }
         }
@@ -676,6 +937,34 @@ class Music {
             }
         }
 
+        // ---- inside the mothership: eerie, glassy arpeggios ----
+        if (T.ship) {
+            const out = this.layers.ship;
+            const st = 0.36;
+            if (!this.shipNext || this.shipNext < now - 1) { this.shipNext = now + 0.05; this.shipStep = 0; }
+            while (this.shipNext < ahead) {
+                const k = this.shipStep++;
+                const ch = SHIP_CHORDS[Math.floor(k / 8) % 4];
+                const n = ch[[0, 1, 2, 3, 2, 1, 2, 3][k % 8]] + (Math.floor(k / 32) % 2 ? 12 : 0);
+                this.A.osc(out, { t: this.shipNext, type: 'triangle', f: NOTE(n), dur: 0.5, vol: 0.045, rev: true });
+                this.A.osc(out, { t: this.shipNext + st * 0.5, f: NOTE(n + 12), dur: 0.3, vol: 0.01, rev: true });
+                if (k % 8 === 0) this.pad(this.shipNext, [ch[0] - 12, ch[1], ch[2]], st * 8.5, out, 0.016);
+                if (k % 16 === 0) this.A.osc(out, { t: this.shipNext, f: NOTE(ch[0] - 24), dur: st * 7, vol: 0.09, a: 0.4 });
+                this.shipNext += st;
+            }
+        }
+
+        // ---- the creature fight: fast, spooky and a little bit crazy ----
+        if (T.boss2) {
+            const out = this.layers.boss2;
+            const st = 60 / 168 / 4;
+            if (!this.b2Next || this.b2Next < now - 1) { this.b2Next = now + 0.05; this.b2Step = 0; }
+            while (this.b2Next < ahead) {
+                this.boss2Step(this.b2Next, this.b2Step++, out);
+                this.b2Next += st;
+            }
+        }
+
         // ---- ending theme ----
         if (T.theme && this.themeStart >= 0) {
             const out = this.layers.theme;
@@ -696,6 +985,33 @@ class Music {
                 this.themeNext++;
             }
         }
+    }
+
+    boss2Step(t, step, out) {
+        const A = this.A;
+        const s = step % 16;
+        const bar = Math.floor(step / 16) % 8;
+        const shift = [0, 0, 3, 0, 5, 3, -2, 1][bar];
+        // pounding drums
+        if (s % 4 === 0 || s === 14) A.osc(out, { t, f: 160, f2: 40, dur: 0.15, vol: 0.34, glide: 0.09 });
+        if (s === 4 || s === 12) {
+            A.noise(out, { t, f: 2000, dur: 0.14, vol: 0.15, q: 0.8 });
+            A.osc(out, { t, type: 'triangle', f: 230, f2: 160, dur: 0.08, vol: 0.08 });
+        }
+        A.noise(out, { t, type: 'highpass', f: 9000, dur: 0.025, vol: s % 2 ? 0.016 : 0.028 });
+        // a creepy chromatic bass riff
+        A.osc(out, { t, type: 'sawtooth', f: NOTE(BOSS_RIFF[s] + shift), dur: 0.13, vol: 0.09, lp: 700, q: 3 });
+        // spooky organ stabs
+        if (s === 0 || s === 6 || s === 12) {
+            const root = 62 + shift;
+            for (const n of [root, root + 3, root + 6, root + 9]) A.osc(out, { t, type: 'square', f: NOTE(n), dur: 0.2, vol: 0.02, lp: 2400 });
+        }
+        // a wild wiggly lead in the second half
+        if (bar >= 4 && s % 2 === 0) {
+            const lead = [74, 77, 80, 77, 81, 80, 77, 74][(s / 2) % 8] + (bar % 2 ? 12 : 0);
+            A.osc(out, { t, type: 'square', f: NOTE(lead + shift), dur: 0.1, vol: 0.024, lp: 3200, vib: [7, 8] });
+        }
+        if (s === 0 && bar % 4 === 0) A.noise(out, { t, type: 'highpass', f: 5000, dur: 1.2, vol: 0.06, rev: true });
     }
 
     seqStep(t, step, out, boss) {

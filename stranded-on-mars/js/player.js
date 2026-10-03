@@ -4,14 +4,12 @@
 
 import * as THREE from 'three';
 import { PLAYER } from './config.js';
-import { pathQuery } from './layout.js';
 import { GeoBuilder, toonMaterial, addOutline } from './toon.js';
 import { clamp, lerp, damp, rand } from './util.js';
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _n = new THREE.Vector3();
-const _q = {};
 const _seg = new THREE.Vector3();
 
 // ------------------------------------------------------------
@@ -145,6 +143,13 @@ class ViewModel {
     syncSun(sunDirView) {
         this.sun.position.copy(sunDirView).multiplyScalar(10);
     }
+
+    // Match the light of the level you're in (Mars dust or alien purple)
+    setLighting(sky, ground, intensity) {
+        this.hemi.color.set(sky);
+        this.hemi.groundColor.set(ground);
+        this.hemi.intensity = intensity;
+    }
 }
 
 // ------------------------------------------------------------
@@ -269,7 +274,6 @@ export class Player {
     update(dt, input) {
         const g = this.game;
         const world = g.world;
-        const T = world.terrain;
         this.invuln = Math.max(0, this.invuln - dt);
 
         // ---------------- look ----------------
@@ -334,7 +338,7 @@ export class Player {
         }
 
         // steep slopes: can't walk up them, and you slide down
-        T.normalAt(this.pos.x, this.pos.z, _n);
+        world.normalAt(this.pos.x, this.pos.z, _n);
         if (_n.y < 0.66) {
             let ux = -_n.x, uz = -_n.z;
             const ul = Math.hypot(ux, uz) || 1;
@@ -350,24 +354,23 @@ export class Player {
         this.pos.z += this.vel.z * dt;
         this.pos.y += this.vel.y * dt;
 
-        // stay inside the canyon
-        const q = pathQuery(this.pos.x, this.pos.z, _q);
-        if (q.sd > 1.0) {
-            const ox = this.pos.x - q.cx, oz = this.pos.z - q.cz;
-            const ol = Math.hypot(ox, oz) || 1;
-            const lim = q.hw + 1.0;
-            this.pos.x = q.cx + (ox / ol) * lim;
-            this.pos.z = q.cz + (oz / ol) * lim;
-        }
-        this.pathS = q.s;
+        // stay inside the canyon (or the mothership's rooms)
+        this.pathS = world.confinePlayer(this.pos, PLAYER.radius);
 
         // rocks/props, force fields, ship dome
         const top = world.colliders.resolve(this.pos, PLAYER.radius, PLAYER.height, 0.55);
         if (world.blockByGates(this.pos, PLAYER.radius + 0.2)) g.onGateBump?.();
         world.domeBlocks(this.pos, PLAYER.radius + 0.2);
 
+        // ceiling (inside the mothership)
+        const ceil = world.ceilingAt(this.pos.x, this.pos.z) - PLAYER.height - 0.1;
+        if (this.pos.y > ceil) {
+            this.pos.y = ceil;
+            if (this.vel.y > 0) this.vel.y = 0;
+        }
+
         // ground
-        let ground = T.heightAt(this.pos.x, this.pos.z);
+        let ground = world.groundAt(this.pos.x, this.pos.z);
         if (top > ground) ground = top;
         const wasGround = this.onGround;
         const snap = wasGround && this.vel.y <= 0 ? 0.45 : 0;
@@ -475,7 +478,7 @@ export class Player {
         // gentle aim assist (leads moving aliens a little so kids can hit them)
         const t = g.aliens.aimTarget(origin, dir, g.diff.aimAssist + (g.input.usingGamepad ? 0.04 : 0), 90, true);
         if (t) {
-            const tp = new THREE.Vector3(t.pos.x, t.pos.y + (t.aimY || 1.25) * t.T.scale, t.pos.z);
+            const tp = t.aimAt.clone();
             const travel = tp.distanceTo(origin) / PLAYER.boltSpeed;
             tp.x += t.vel.x * travel;
             tp.z += t.vel.z * travel;

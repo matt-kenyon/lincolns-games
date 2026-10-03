@@ -188,6 +188,8 @@ export class Effects {
         this.ringGeo = new THREE.RingGeometry(0.82, 1.0, 40);
         this.ringGeo.rotateX(-Math.PI / 2);
         this.sphereGeo = new THREE.SphereGeometry(1, 20, 14);
+        this.columnGeo = new THREE.CylinderGeometry(1, 1, 1, 20, 1, true);
+        this.columnGeo.translate(0, 0.5, 0);
     }
 
     // Generic particle spawn. Colors are hex numbers.
@@ -339,6 +341,18 @@ export class Effects {
         this.rings.push({ m, t: 0, life, r: radius, sphere: true });
     }
 
+    // Column of light (aliens teleporting in)
+    beamColumn(x, y, z, color, radius, height, life) {
+        const mat = new THREE.MeshBasicMaterial({
+            color, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        });
+        const m = new THREE.Mesh(this.columnGeo, mat);
+        m.position.set(x, y, z);
+        m.renderOrder = 12;
+        this.scene.add(m);
+        this.rings.push({ m, t: 0, life, r: radius, h: height, column: true });
+    }
+
     // Continuous emitters (smoke column, fires, campfire)
     addEmitter(e) {
         e.acc = 0;
@@ -422,6 +436,13 @@ export class Effects {
                 this.scene.remove(R.m);
                 R.m.material.dispose();
                 this.rings.splice(i, 1);
+                continue;
+            }
+            if (R.column) {
+                // shoots up fast, then thins out
+                const w = R.r * (1 - t * 0.75);
+                R.m.scale.set(w, R.h * Math.min(1, t * 6), w);
+                R.m.material.opacity = (1 - t) * (1 - t) * 0.85;
                 continue;
             }
             const s = R.r * (R.sphere ? 0.4 + t * 0.6 : 0.2 + t * 0.8);

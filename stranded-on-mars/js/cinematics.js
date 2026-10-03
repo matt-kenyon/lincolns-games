@@ -9,10 +9,11 @@ import { buildShip } from './ship.js';
 import { createAlienModel } from './aliens.js';
 import { Effects } from './effects.js';
 import {
-    createAstronaut, createSeat, createParachute, createFlag, createPlanet, createStars, createNebula,
+    createAstronaut, createSeat, createParachute, createPlanet, createStars, createNebula,
 } from './models.js';
 import { SHIP, START } from './layout.js';
 import { GeoBuilder, toonMaterial, glowSprite } from './toon.js';
+import { captureShots, bossIntroShots, finaleShots } from './cutscenes2.js';
 import { clamp, lerp, easeInOut, easeOut, easeIn, rand, makeRng, perlin2, fbm2, damp } from './util.js';
 
 const $ = (id) => document.getElementById(id);
@@ -62,6 +63,13 @@ export class Cinematics {
         const sun = new THREE.DirectionalLight(0xfff2e0, 2.5);
         sun.position.set(80, 40, 60);
         s.add(sun);
+        this.sun = sun;
+        this.sunHome = sun.position.clone();
+        // spare lights for the level 2 cutscenes (tractor beam green, alarm red). They're always
+        // in the scene (just switched off) so turning them on doesn't make the shaders rebuild.
+        this.greenLight = new THREE.PointLight(0x7dff9a, 0, 70, 1.2);
+        this.redLight = new THREE.PointLight(0xff3030, 0, 9, 1.5);
+        s.add(this.greenLight, this.redLight);
         s.add(new THREE.HemisphereLight(0x8a9ad0, 0x2a1830, 0.75));
         this.sunGlow = glowSprite(0xfff0c8, 260, 0.9);
         this.sunGlow.position.set(1200, 600, 900);
@@ -149,6 +157,8 @@ export class Cinematics {
         $('skip-hint').classList.add('hidden');
         $('alarm-flash').classList.remove('on');
         $('title-card').classList.remove('on');
+        $('level-card').classList.remove('on');
+        $('boss-card').classList.remove('on');
         this.game.audio.alarm(false);
         this.game.audio.engine(0);
         this.game.audio.stopSpeech();
@@ -725,7 +735,26 @@ export class Cinematics {
     }
 
     // ========================================================
-    // ENDING
+    // LEVEL 2: the creature's entrance, and the escape-pod finale
+    // (the shots themselves are in cutscenes2.js)
+    // ========================================================
+    playBossIntro(boss, onDone) {
+        this.run(bossIntroShots(this, boss), onDone, () => {
+            $('boss-card').classList.remove('on');
+        });
+    }
+
+    playFinale(onDone) {
+        this.buildSpace();
+        this.run(finaleShots(this), onDone, () => {
+            this.sun.position.copy(this.sunHome);
+            this.moonBase.visible = false;
+            this.mars.visible = this.moon.visible = this.earth.visible = true;
+        });
+    }
+
+    // ========================================================
+    // ENDING OF MARS: fix the ship, blast off... and get caught!
     // ========================================================
     playOutro(onDone) {
         this.buildSpace();
@@ -740,8 +769,6 @@ export class Cinematics {
         const vel = new THREE.Vector3();
         const oShip = buildShip();
         for (const id of Object.keys(oShip.ghosts)) oShip.setGhost(id, false);
-        const astro = createAstronaut();
-        const flag = createFlag('LINCOLN');
 
         const shots = [
             // 1 — Engines on
@@ -833,96 +860,17 @@ export class Cinematics {
                     this.speedLines(dt, 50);
                 },
             },
-            // 4 — Moon landing
-            {
-                dur: 10,
-                fov: 50,
-                start: () => {
-                    this.mars.visible = this.moon.visible = this.earth.visible = false;
-                    this.moonBase.visible = true;
-                    this.moonBase.add(oShip.root);
-                    oShip.root.position.set(0, 40, -20);
-                    oShip.root.rotation.set(0, 0.6, 0);
-                    this.moonBase.add(astro.root);
-                    astro.root.visible = false;
-                    this.moonBase.add(flag);
-                    flag.position.set(-3.2, -0.5, -12);
-                    flag.scale.setScalar(0.01);
-                    this.actors.push(astro.root, flag);
-                    this.landedM = false;
-                    A.engine(0.6);
-                    this.caption('', '');
-                },
-                update: (t, dt) => {
-                    const s = oShip.root;
-                    if (!this.landedM) {
-                        const k = clamp(t / 4, 0, 1);
-                        s.position.y = lerp(40, 2.15, easeOut(k));
-                        oShip.setEngines(2.2, t);
-                        if (Math.random() < dt * 25) {
-                            const a = Math.random() * Math.PI * 2;
-                            this.sfx.spawn({ x: Math.cos(a) * 2, y: 0.2, z: -20 + Math.sin(a) * 2, vx: Math.cos(a) * 6, vy: 0.5, vz: Math.sin(a) * 6, life: 1.5, size: 0.8, size1: 3, color: 0xbfbfc6, alpha: 0.7, alpha1: 0, drag: 1.2 });
-                        }
-                        if (k >= 1) {
-                            this.landedM = true;
-                            oShip.setEngines(0);
-                            A.engine(0);
-                            A.play('land');
-                            for (let i = 0; i < 30; i++) {
-                                const a = Math.random() * Math.PI * 2;
-                                this.sfx.spawn({ x: Math.cos(a) * 2.5, y: 0.3, z: -20 + Math.sin(a) * 2.5, vx: Math.cos(a) * rand(3, 7), vy: rand(0.5, 2), vz: Math.sin(a) * rand(3, 7), life: 2.5, size: 1, size1: 3.5, color: 0xc8c8d0, alpha: 0.8, alpha1: 0, drag: 0.8, grav: 0.4 });
-                            }
-                            this.landT = t;
-                        }
-                    } else {
-                        const lt = t - this.landT;
-                        if (lt > 0.8) {
-                            astro.root.visible = true;
-                            const k = clamp((lt - 0.8) / 2.2, 0, 1);
-                            const ax = lerp(-1.8, -2.2, k), az = lerp(-17, -11.5, k);
-                            astro.root.position.set(ax, this.moonH(ax, az) + Math.abs(Math.sin(lt * 5)) * 0.35 * (k >= 1 ? 0 : 1), az);
-                            astro.root.rotation.y = 0.2;
-                            astro.walk = k < 1 ? 1 : 0;
-                        }
-                        if (lt > 3.2) {
-                            const fk = clamp((lt - 3.2) / 0.6, 0, 1);
-                            flag.scale.setScalar(Math.max(0.01, easeOut(fk)));
-                            flag.position.y = this.moonH(flag.position.x, flag.position.z) + lerp(-0.5, 0, fk);
-                            if (!this.flagSnd) { this.flagSnd = true; A.play('fanfare'); this.caption('MISSION COMPLETE!', 'big'); }
-                            astro.wave = Math.min(1, (lt - 3.6) * 2);
-                        }
-                        flag.cloth.rotation.y = Math.sin(t * 1.5) * 0.1;
-                    }
-                    astro.animate(dt);
-                    this.moonEarth.rotation.y += dt * 0.05;
-                    const camT = clamp(t / 10, 0, 1);
-                    this.lookFrom(V(7 - camT * 2, 2.6 + camT * 1.2, -2 + camT * 4), V(-1, 2.2 + (this.landedM ? 0 : (40 - 2) * 0.03), -15));
-                },
-            },
-            // 5 — The end
-            {
-                dur: 4,
-                fov: 50,
-                start: () => {
-                    this.caption('THE END', 'big');
-                },
-                update: (t, dt) => {
-                    astro.animate(dt);
-                    flag.cloth.rotation.y = Math.sin(t * 1.5) * 0.1;
-                    const k = easeInOut(clamp(t / 4, 0, 1));
-                    this.lookFrom(V(5 - k * 2, 3.8 + k * 10, 2 + k * 14), V(-1, 2.2 + k * 6, -16));
-                    if (t > 3.3 && !this.fading) { this.fading = true; this.fadeTo(1, 0.6); }
-                },
-            },
+            // 4... — the alien mothership catches us! (cutscenes2.js)
+            ...captureShots(this, { ship: oShip, vel }),
         ];
 
         this.run(shots, onDone, () => {
-            this.fading = false;
-            this.flagSnd = false;
-            this.moonBase.visible = false;
-            this.moonBase.remove(oShip.root);
-            this.moonBase.remove(astro.root);
-            this.moonBase.remove(flag);
+            this.fading = this.flashed = false;
+            this.camLook = null;
+            this.sun.position.copy(this.sunHome);
+            if (this.greenLight) this.greenLight.intensity = 0;
+            if (this.redLight) this.redLight.intensity = 0;
+            this.game.audio.tractor(false);
         });
     }
 }
