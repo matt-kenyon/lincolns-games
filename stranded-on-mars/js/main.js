@@ -1,0 +1,676 @@
+// ============================================================
+// STRANDED ON MARS — a game by Lincoln Kenyon
+// Main bootstrap + game state machine
+// ============================================================
+
+import * as THREE from 'three';
+import { World, SUN_DIR } from './world.js';
+import { Effects } from './effects.js';
+import { shared } from './toon.js';
+import { Player } from './player.js';
+import { AlienManager } from './aliens.js';
+import { Combat } from './combat.js';
+import { Level } from './level.js';
+import { HUD } from './hud.js';
+import { AudioEngine } from './audio.js';
+import { Input } from './input.js';
+import { Cinematics } from './cinematics.js';
+import { DIFFICULTY } from './config.js';
+import { CHECKPOINTS, pathPointAt, SHIP, PART_ORDER, ZONES, zoneAtS, GATES } from './layout.js';
+import { partSlotWorld } from './ship.js';
+import { store, clamp, damp, lerp, easeInOut } from './util.js';
+
+const $ = (id) => document.getElementById(id);
+const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+const params = new URLSearchParams(location.search);
+const DEBUG = params.has('debug');
+const SETTINGS_KEY = 'strandedOnMars.settings';
+
+class Game {
+    constructor() {
+        this.canvas = $('game');
+        this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFShadowMap;
+        this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+        this.pixelRatio = params.get('quality') === 'low' ? 0.6 : this.maxPixelRatio;
+        this.fixedQuality = params.has('quality');
+        this.renderer.setPixelRatio(this.pixelRatio);
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.25, 4500);
+        this.scene.add(this.camera);
+        this.settings = Object.assign(
+            { volume: 0.8, music: 0.6, sensitivity: 1, invert: false, difficulty: 'normal' },
+            store.get(SETTINGS_KEY, {}),
+        );
+        this.diffKey = this.settings.difficulty;
+        this.diff = DIFFICULTY[this.diffKey] || DIFFICULTY.normal;
+        this.stats = { aliens: 0, deaths: 0, shots: 0, time: 0 };
+        this.state = 'loading';
+        this.time = 0;
+        this.stateT = 0;
+        this.sunView = new THREE.Vector3();
+        this.frameInput = {};
+        this.perf = { acc: 0, n: 0, t: 0 };
+        this.titleS = 30;
+    }
+
+    async boot() {
+        const bar = $('loadfill'), txt = $('loadtext');
+        const progress = (p, msg) => {
+            bar.style.width = Math.round(p * 100) + '%';
+            if (msg) txt.textContent = msg;
+        };
+        progress(0.02, 'Warming up the rockets...');
+        await nextFrame();
+        this.audio = new AudioEngine();
+        this.audio.volume = this.settings.volume;
+        this.audio.musicVolume = this.settings.music;
+        this.input = new Input(this.canvas);
+        this.effects = new Effects(this.scene);
+        this.hud = new HUD(this);
+        this.world = new World(this);
+        await nextFrame();
+        this.world.build(progress);
+        await nextFrame();
+        progress(0.9, 'Waking up the aliens...');
+        this.aliens = new AlienManager(this);
+        this.aliens.build();
+        this.combat = new Combat(this);
+        this.player = new Player(this);
+        this.level = new Level(this);
+        this.level.build();
+        this.cine = new Cinematics(this);
+        this.hud.buildMinimap();
+        await nextFrame();
+        progress(0.97, 'Compiling shaders...');
+        // warm up shaders so the first real frame doesn't hitch
+        this.renderer.compile(this.scene, this.camera);
+        await nextFrame();
+        progress(1, 'Ready!');
+        this.bindUI();
+        this.input.onLockChange = (locked) => this.onLockChange(locked);
+        window.addEventListener('resize', () => this.resize());
+        this.resize();
+        $('screen-loading').classList.add('hidden');
+        this.toTitle();
+        this.last = performance.now();
+        requestAnimationFrame((t) => this.frame(t));
+        window.__ready = true;
+    }
+
+    // --------------------------------------------------------
+    // UI wiring
+    // --------------------------------------------------------
+    bindUI() {
+        const save = Level.loadSave();
+        $('btn-continue').classList.toggle('hidden', !save);
+        const diffs = document.querySelectorAll('.diff');
+        const setDiff = (d) => {
+            this.settings.difficulty = d;
+            diffs.forEach((b) => b.classList.toggle('on', b.dataset.d === d));
+            store.set(SETTINGS_KEY, this.settings);
+        };
+        setDiff(this.settings.difficulty);
+        diffs.forEach((b) => b.addEventListener('click', () => {
+            setDiff(b.dataset.d);
+            this.audio.init();
+            this.audio.play('uiMove');
+        }));
+        $('btn-start').addEventListener('click', () => this.newGame());
+        $('btn-continue').addEventListener('click', () => this.continueGame());
+        $('btn-howto').addEventListener('click', () => {
+            this.audio.init();
+            this.audio.play('uiSelect');
+            $('screen-howto').classList.remove('hidden');
+        });
+        $('btn-howto-close').addEventListener('click', () => $('screen-howto').classList.add('hidden'));
+        $('btn-resume').addEventListener('click', () => this.resume());
+        $('click-resume').addEventListener('click', () => this.resume());
+        $('btn-checkpoint').addEventListener('click', () => {
+            this.hidePause();
+            this.level.respawn();
+            this.resume();
+        });
+        $('btn-quit').addEventListener('click', () => {
+            location.href = location.pathname + (DEBUG ? '?debug' : '');
+        });
+        $('btn-again').addEventListener('click', () => {
+            location.href = location.pathname + (DEBUG ? '?debug' : '');
+        });
+        const sl = (id, key, fn) => {
+            const el = $(id);
+            el.value = this.settings[key];
+            el.addEventListener('input', () => {
+                this.settings[key] = parseFloat(el.value);
+                fn && fn(this.settings[key]);
+                store.set(SETTINGS_KEY, this.settings);
+            });
+        };
+        sl('sl-volume', 'volume', (v) => this.audio.setVolume(v));
+        sl('sl-music', 'music', (v) => this.audio.setMusicVolume(v));
+        sl('sl-sens', 'sensitivity');
+        const inv = $('cb-invert');
+        inv.checked = !!this.settings.invert;
+        inv.addEventListener('change', () => {
+            this.settings.invert = inv.checked;
+            store.set(SETTINGS_KEY, this.settings);
+        });
+        // touch-only devices
+        const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches;
+        $('touch-notice').classList.toggle('hidden', !coarse);
+        this.canvas.addEventListener('click', () => {
+            if (this.state === 'play' && !this.input.locked && !this.input.usingGamepad) this.input.requestLock();
+        });
+        // Browsers only allow sound after you click or press a key: start the title music then
+        const wake = () => {
+            this.audio.init();
+            if (this.state === 'title') {
+                this.audio.setMusic('title');
+                this.audio.setAmbient(0.5);
+            }
+            window.removeEventListener('pointerdown', wake);
+            window.removeEventListener('keydown', wake);
+        };
+        window.addEventListener('pointerdown', wake);
+        window.addEventListener('keydown', wake);
+    }
+
+    resize() {
+        const w = window.innerWidth, h = window.innerHeight;
+        this.renderer.setSize(w, h);
+        this.camera.aspect = w / h;
+        this.camera.updateProjectionMatrix();
+        if (this.cine) {
+            this.cine.camera.aspect = w / h;
+            this.cine.camera.updateProjectionMatrix();
+        }
+    }
+
+    setState(s) {
+        this.state = s;
+        this.stateT = 0;
+    }
+
+    // --------------------------------------------------------
+    // Flow
+    // --------------------------------------------------------
+    toTitle() {
+        this.setState('title');
+        $('screen-title').classList.remove('hidden');
+        this.hud.show(false);
+        this.camera.fov = 60;
+        this.camera.updateProjectionMatrix();
+    }
+
+    applyDifficulty() {
+        this.diffKey = this.settings.difficulty;
+        this.diff = DIFFICULTY[this.diffKey] || DIFFICULTY.normal;
+        for (const a of this.aliens.list) if (!a.dead) a.reset();
+    }
+
+    newGame() {
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        this.audio.init();
+        this.audio.play('uiSelect');
+        Level.clearSave();
+        this.applyDifficulty();
+        $('screen-title').classList.add('hidden');
+        $('screen-howto').classList.add('hidden');
+        this.input.requestLock();
+        this.setState('intro');
+        this.audio.setAmbient(0.5);
+        this.cine.playIntro(() => this.startPlay(0, true));
+    }
+
+    continueGame() {
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        const s = Level.loadSave();
+        if (!s) return this.newGame();
+        this.audio.init();
+        this.audio.play('uiSelect');
+        if (s.diff && DIFFICULTY[s.diff]) this.settings.difficulty = s.diff;
+        this.applyDifficulty();
+        $('screen-title').classList.add('hidden');
+        this.level.applySave(s);
+        this.input.requestLock();
+        this.startPlay(this.level.checkpoint, false);
+    }
+
+    startPlay(cp, fresh) {
+        const c = CHECKPOINTS[cp];
+        this.player.spawn(c.x, c.z, c.yaw);
+        this.player.locked = false;
+        this.player.vm.visible = true;
+        this.camera.fov = 75;
+        this.camera.updateProjectionMatrix();
+        this.hud.show(true);
+        this.hud.setParts(this.level.have, this.level.installed);
+        this.level.zone = zoneAtS(this.player.pathS || 0);
+        this.level.zoneTimer = this.time;
+        this.setState('play');
+        this.cine.fadeTo(0, 0.8);
+        this.audio.setAmbient(0.9);
+        this.audio.setMusic('explore');
+        setTimeout(() => this.hud.zoneBanner(ZONES[cp].name, cp === 0 ? 'MARS' : 'CHECKPOINT'), 600);
+        if (fresh) this.level.save();
+        if (!this.input.locked && !this.input.usingGamepad) $('click-resume').classList.remove('hidden');
+    }
+
+    onLockChange(locked) {
+        if (locked) {
+            $('click-resume').classList.add('hidden');
+            if (this.state === 'paused') this.hidePause();
+            return;
+        }
+        if (this.state === 'play' && !this.input.usingGamepad) this.pause();
+    }
+
+    pause() {
+        if (this.state !== 'play') return;
+        this.setState('paused');
+        $('screen-pause').classList.remove('hidden');
+        this.input.exitLock();
+        this.audio.heartbeat(false);
+    }
+
+    hidePause() {
+        $('screen-pause').classList.add('hidden');
+        if (this.state === 'paused') this.setState('play');
+    }
+
+    resume() {
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        this.audio.init();
+        this.hidePause();
+        $('click-resume').classList.add('hidden');
+        this.input.requestLock();
+        setTimeout(() => {
+            if (this.state === 'play' && !this.input.locked && !this.input.usingGamepad) $('click-resume').classList.remove('hidden');
+        }, 700);
+    }
+
+    onAlienDefeated(a) {
+        this.level.onAlienDefeated(a);
+    }
+
+    onGateBump() {
+        this.level.onGateBump();
+    }
+
+    onPlayerDown() {
+        this.setState('dead');
+        this.level.onPlayerDown();
+        this.audio.heartbeat(false);
+        $('screen-dead').classList.remove('hidden');
+        this.player.vm.visible = false;
+    }
+
+    // Rebuild the ship (pieces fly in one by one), then the ending
+    startRepairSequence(level) {
+        this.setState('repair');
+        this.player.locked = true;
+        this.player.vm.visible = false;
+        this.hud.show(false);
+        $('letterbox').classList.add('on');
+        this.audio.setMusic('explore');
+        const from = this.player.eyePos.clone();
+        this.repair = {
+            parts: PART_ORDER.filter((id) => !level.installed[id]),
+            i: 0, t: 0, step: null, from, done: false, endT: 0,
+        };
+        this.repairCam = this.camera.position.clone();
+    }
+
+    updateRepair(dt) {
+        const R = this.repair;
+        R.t += dt;
+        const ship = this.world.ship;
+        const gy = this.world.groundAt(SHIP.x, SHIP.z);
+        const ang = 0.9 + R.t * 0.18;
+        const target = new THREE.Vector3(SHIP.x + Math.cos(ang) * 17, gy + 5.5, SHIP.z + Math.sin(ang) * 17);
+        const k = Math.min(1, R.t / 1.5);
+        this.camera.position.lerpVectors(this.repairCam, target, easeInOut(k));
+        this.camera.lookAt(SHIP.x, gy + 1.5, SHIP.z);
+        if (!R.done) {
+            if (!R.step && R.t > 1.0 + R.i * 1.15) {
+                if (R.i < R.parts.length) {
+                    R.step = this.level.repairStep(R.parts[R.i], R.from);
+                    R.stepT = 0;
+                    this.audio.play('whoosh');
+                } else {
+                    R.done = true;
+                    R.endT = R.t;
+                    this.world.setShipRepaired();
+                    ship.setEngines(1);
+                    this.audio.play('powerUp');
+                    this.hud.announce('ALL 5 PARTS INSTALLED!', 'SHIP REPAIRED!');
+                    this.hud.el.classList.remove('hidden');
+                    for (const id of ['vitals', 'compass', 'objective', 'parts', 'minimap-wrap', 'weapon', 'crosshair']) $(id).style.visibility = 'hidden';
+                }
+            }
+            if (R.step) {
+                R.stepT += dt;
+                R.step.update(R.stepT / 0.9);
+                if (R.stepT >= 0.9) {
+                    R.step.finish();
+                    R.step = null;
+                    R.i++;
+                }
+            }
+        } else {
+            ship.setEngines(1, R.t);
+            if (R.t - R.endT > 3.2 && !R.fading) {
+                R.fading = true;
+                this.cine.fadeTo(1, 0.7);
+                setTimeout(() => this.startOutro(), 750);
+            }
+        }
+    }
+
+    startOutro() {
+        for (const id of ['vitals', 'compass', 'objective', 'parts', 'minimap-wrap', 'weapon', 'crosshair']) $(id).style.visibility = '';
+        this.hud.show(false);
+        this.setState('outro');
+        Level.clearSave();
+        this.cine.playOutro(() => this.showEnd());
+    }
+
+    showEnd() {
+        this.setState('end');
+        this.input.exitLock();
+        this.audio.engine(0);
+        const s = this.stats;
+        const mins = Math.floor(s.time / 60), secs = Math.floor(s.time % 60);
+        $('end-stats').innerHTML = `
+            <div>Aliens poofed</div><div class="v">${s.aliens}</div>
+            <div>Ship parts found</div><div class="v">5 / 5</div>
+            <div>Mission time</div><div class="v">${mins}:${String(secs).padStart(2, '0')}</div>
+            <div>Knockouts</div><div class="v">${s.deaths}</div>
+            <div>Difficulty</div><div class="v">${this.diff.label}</div>`;
+        $('screen-end').classList.remove('hidden');
+        this.cine.fadeTo(0, 1.2);
+    }
+
+    // --------------------------------------------------------
+    // Main loop
+    // --------------------------------------------------------
+    frame(now) {
+        requestAnimationFrame((t) => this.frame(t));
+        let dt = (now - this.last) / 1000;
+        this.last = now;
+        if (dt > 0.05) dt = 0.05;
+        if (dt <= 0) dt = 0.0001;
+        this.stateT += dt;
+        shared.uTime.value += dt;
+        const inp = this.input.poll(dt);
+        this.frameInput = inp;
+
+        if (this.input.wasPressed('KeyM')) {
+            const m = this.audio.toggleMute();
+            if (this.hud && this.state === 'play') this.hud.toast(m ? 'Sound OFF (M)' : 'Sound ON (M)', 1.2);
+        }
+        if (DEBUG) this.debugKeys();
+
+        switch (this.state) {
+            case 'title': this.updateTitle(dt, inp); break;
+            case 'intro':
+            case 'outro': this.updateCinematic(dt, inp); break;
+            case 'play': this.updatePlay(dt, inp); break;
+            case 'paused':
+                if (this.input.padWasPressed(9) || this.input.padWasPressed(0) || this.input.wasPressed('Enter')) this.resume();
+                this.renderWorld(true);
+                break;
+            case 'dead': this.updateDead(dt); break;
+            case 'repair':
+                this.updateRepair(dt);
+                this.world.update(dt, this.camera, this.world.ship.root.position);
+                this.effects.update(dt);
+                this.renderWorld(false);
+                break;
+            case 'end':
+                if (this.input.padWasPressed(0) || this.input.padWasPressed(9)) $('btn-again').click();
+                this.cine.update(0);
+                this.renderCine();
+                break;
+        }
+        this.input.endFrame();
+        this.adaptQuality(dt);
+    }
+
+    updateTitle(dt, inp) {
+        // slow, dreamy flyover of the canyon
+        this.titleS += dt * 3.2;
+        if (this.titleS > 330) this.titleS = 30;
+        const p = pathPointAt(this.titleS);
+        const a = pathPointAt(this.titleS + 45);
+        const gy = this.world.groundAt(p.x, p.z);
+        this.camera.position.set(p.x, gy + 13 + Math.sin(this.titleS * 0.05) * 2, p.z);
+        this.camera.lookAt(a.x, this.world.groundAt(a.x, a.z) + 7, a.z);
+        this.world.update(dt, this.camera, this.camera.position);
+        this.effects.update(dt);
+        this.renderWorld(false);
+        if (inp.confirm && $('screen-howto').classList.contains('hidden') && this.stateT > 0.5) this.newGame();
+    }
+
+    updateCinematic(dt, inp) {
+        if (inp.skip && this.stateT > 0.6) this.cine.skip();
+        this.cine.update(dt);
+        if (this.state !== 'intro' && this.state !== 'outro') return; // finished during update
+        if (this.cine.worldShot) {
+            this.world.update(dt, this.cine.camera, this.cine.focus);
+            this.effects.update(dt);
+        }
+        this.renderCine();
+    }
+
+    updatePlay(dt, inp) {
+        if (inp.pause) {
+            this.pause();
+            this.renderWorld(true);
+            return;
+        }
+        this.time += dt;
+        this.stats.time += dt;
+        const P = this.player;
+        P.update(dt, inp);
+        this.aliens.update(dt);
+        this.combat.update(dt);
+        this.level.update(dt);
+        P.updateCamera(this.camera, dt);
+        this.world.update(dt, this.camera, P.pos);
+        this.effects.update(dt);
+        this.hud.update(dt);
+        this.audio.setListener(this.camera.position, P.yaw);
+        this.audio.heartbeat(P.health <= 2 && !P.dead);
+        this.renderWorld(true);
+    }
+
+    updateDead(dt) {
+        const P = this.player;
+        this.aliens.update(dt);
+        this.combat.update(dt);
+        this.effects.update(dt);
+        P.pitch = damp(P.pitch, -0.25, 2, dt);
+        P.roll = damp(P.roll, 0.5, 2, dt);
+        P.landDip = damp(P.landDip, 1.1, 2, dt);
+        P.updateCamera(this.camera, dt);
+        this.world.update(dt, this.camera, P.pos);
+        this.hud.update(dt);
+        this.renderWorld(false);
+        if (this.stateT > 2.8 && !this.respawning) {
+            this.respawning = true;
+            this.cine.fadeTo(1, 0.4);
+            setTimeout(() => {
+                $('screen-dead').classList.add('hidden');
+                this.level.respawn();
+                this.player.roll = 0;
+                this.player.landDip = 0;
+                this.player.vm.visible = true;
+                this.setState('play');
+                this.respawning = false;
+                this.cine.fadeTo(0, 0.6);
+                this.hud.zoneBanner(ZONES[this.level.checkpoint].name, 'CHECKPOINT');
+            }, 450);
+        }
+    }
+
+    // --------------------------------------------------------
+    // Rendering
+    // --------------------------------------------------------
+    updateSunView(cam) {
+        cam.updateMatrixWorld();
+        this.sunView.copy(SUN_DIR).transformDirection(cam.matrixWorldInverse);
+        shared.uSunDirView.value.copy(this.sunView);
+    }
+
+    renderWorld(withViewModel) {
+        const r = this.renderer;
+        this.updateSunView(this.camera);
+        r.autoClear = true;
+        r.render(this.scene, this.camera);
+        if (withViewModel && this.player.vm.visible) {
+            r.autoClear = false;
+            r.clearDepth();
+            this.player.vm.syncSun(this.sunView);
+            r.render(this.player.vm.scene, this.player.vm.camera);
+            r.autoClear = true;
+        }
+    }
+
+    renderCine() {
+        const c = this.cine;
+        this.updateSunView(c.camera);
+        this.renderer.render(c.scene || this.scene, c.camera);
+    }
+
+    // Lower the resolution on slow computers (keeps it smooth on Chromebooks)
+    adaptQuality(dt) {
+        if (this.fixedQuality || this.state === 'loading') return;
+        const P = this.perf;
+        P.acc += dt;
+        P.n++;
+        P.t += dt;
+        if (P.t < 2) return;
+        const avg = P.acc / P.n;
+        P.acc = 0; P.n = 0; P.t = 0;
+        let changed = false;
+        if (avg > 0.024 && this.pixelRatio > 0.6) {
+            this.pixelRatio = Math.max(0.6, this.pixelRatio - 0.15);
+            changed = true;
+        } else if (avg > 0.03 && this.pixelRatio <= 0.6 && this.renderer.shadowMap.enabled) {
+            this.renderer.shadowMap.enabled = false;
+            this.scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
+        } else if (avg < 0.0145 && this.pixelRatio < this.maxPixelRatio) {
+            this.pixelRatio = Math.min(this.maxPixelRatio, this.pixelRatio + 0.1);
+            changed = true;
+        }
+        if (changed) {
+            this.renderer.setPixelRatio(this.pixelRatio);
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    }
+
+    // --------------------------------------------------------
+    // Debug helpers (?debug in the URL)
+    // --------------------------------------------------------
+    debugKeys() {
+        const i = this.input;
+        if (i.wasPressed('Digit1')) this.debug.teleport(0);
+        if (i.wasPressed('Digit2')) this.debug.teleport(1);
+        if (i.wasPressed('Digit3')) this.debug.teleport(2);
+        if (i.wasPressed('Digit4')) this.debug.teleport(3);
+        if (i.wasPressed('Digit5')) this.debug.teleport(4);
+        if (i.wasPressed('KeyK')) this.debug.killZone();
+        if (i.wasPressed('KeyI')) { this.player.god = !this.player.god; this.hud.toast('God mode ' + (this.player.god ? 'ON' : 'OFF')); }
+        if (i.wasPressed('KeyL')) this.debug.allParts();
+    }
+
+    get debug() {
+        const g = this;
+        return {
+            teleport(cp) {
+                const c = CHECKPOINTS[cp];
+                g.player.spawn(c.x, c.z, c.yaw);
+                g.level.checkpoint = Math.max(g.level.checkpoint, cp);
+            },
+            killZone(z = g.level.zone) {
+                for (const a of g.aliens.byZone[z]) if (!a.dead) { a.root.visible = true; a.die(); }
+            },
+            openAll() {
+                for (let k = 0; k < GATES.length; k++) { g.world.openGate(k, true); g.aliens.clearZone(k); }
+                g.world.dropDome(true);
+                g.aliens.clearZone(4);
+            },
+            allParts() {
+                for (const id of PART_ORDER) {
+                    g.level.have[id] = true;
+                    if (g.level.partPickups[id]) g.level.removePickup(g.level.partPickups[id]);
+                }
+                g.hud.setParts(g.level.have, g.level.installed);
+            },
+            skipIntro() {
+                if (g.state === 'intro') g.cine.skip();
+            },
+            // fast-forward the running cutscene to shot n (+ seconds into it)
+            cineShot(n, into = 0) {
+                const c = g.cine;
+                let guard = 0;
+                while (c.shots && !c.done && (c.idx < n || (c.idx === n && c.t < into)) && guard++ < 20000) {
+                    c.update(0.05);
+                    if (c.worldShot) { g.world.update(0.05, c.camera, c.focus); g.effects.update(0.05); }
+                }
+                return { idx: c.idx, t: c.t };
+            },
+            look(yaw, pitch) {
+                g.player.yaw = yaw;
+                g.player.pitch = pitch;
+            },
+            // Run gameplay for N seconds without rendering (for automated tests)
+            simulate(seconds, inp = {}, track = null) {
+                const dt = 1 / 30;
+                const base = { moveX: 0, moveY: 0, lookX: 0, lookY: 0, jump: false, sprint: false, fire: false, grenade: false, grenadePressed: false, interact: false, pause: false, confirm: false, skip: false };
+                let maxY = -1e9;
+                for (let t = 0; t < seconds; t += dt) {
+                    const i = Object.assign({}, base, inp);
+                    if (inp.jumpEvery) i.jump = Math.floor(t / inp.jumpEvery) !== Math.floor((t - dt) / inp.jumpEvery);
+                    if (track) {
+                        const a = g.aliens.list.find((x) => !x.dead && x.root.visible && x.zone === g.level.zone);
+                        if (a) {
+                            const dx = a.pos.x - g.player.pos.x, dz = a.pos.z - g.player.pos.z;
+                            g.player.yaw = Math.atan2(-dx, -dz);
+                            g.player.pitch = Math.atan2(a.pos.y + 1.1 - g.player.eyePos.y, Math.hypot(dx, dz));
+                        }
+                    }
+                    g.frameInput = i;
+                    g.time += dt;
+                    g.stats.time += dt;
+                    g.player.update(dt, i);
+                    g.aliens.update(dt);
+                    g.combat.update(dt);
+                    g.level.update(dt);
+                    g.player.updateCamera(g.camera, dt);
+                    g.world.update(dt, g.camera, g.player.pos);
+                    g.effects.update(dt);
+                    g.hud.update(dt);
+                    maxY = Math.max(maxY, g.player.pos.y);
+                    if (g.state !== 'play') break;
+                }
+                const P = g.player;
+                return {
+                    state: g.state, pos: P.pos.toArray().map((v) => +v.toFixed(1)), maxY: +maxY.toFixed(2),
+                    hp: P.health, shield: +P.shield.toFixed(1), heat: +P.heat.toFixed(2), gren: P.grenades,
+                    zone: g.level.zone, stats: { ...g.stats, time: +g.stats.time.toFixed(1) },
+                };
+            },
+        };
+    }
+}
+
+const game = new Game();
+window.game = game;
+game.boot().catch((e) => {
+    console.error(e);
+    $('loadtext').textContent = 'Oops! Something went wrong: ' + e.message;
+});

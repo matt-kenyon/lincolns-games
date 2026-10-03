@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stranded on Mars</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+:root {
+    --cream: #fff4e0;
+    --ink: #2a1520;
+    --cyan: #6ff0ff;
+    --cyan-deep: #1aa7c9;
+    --orange: #ff8a3d;
+    --heart: #ff4d5e;
+    --gold: #ffd166;
+    --panel: rgba(30, 14, 22, 0.55);
+    --title-font: 'Russo One', 'Arial Black', system-ui, sans-serif;
+    --body-font: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #1b0f14;
+    color: var(--cream);
+    font-family: var(--body-font);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#game {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    outline: none;
+}
+
+.hidden { display: none !important; }
+
+/* ============================================================
+   SOFT VIGNETTE (cheap "painterly" framing)
+   ============================================================ */
+#vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(40, 10, 20, 0.38) 100%);
+    z-index: 1;
+}
+
+/* ============================================================
+   HUD
+   ============================================================ */
+#hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+}
+
+/* Hearts + shield (top-left) */
+#vitals {
+    position: absolute;
+    top: 22px;
+    left: 26px;
+}
+#hearts {
+    display: flex;
+    gap: 3px;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5));
+}
+#hearts svg { width: 34px; height: 31px; }
+#hearts.hurt { animation: hurtShake 0.3s; }
+@keyframes hurtShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    75% { transform: translateX(4px); }
+}
+#shield {
+    margin-top: 8px;
+    width: 188px;
+    height: 11px;
+    border-radius: 6px;
+    background: rgba(10, 30, 45, 0.6);
+    border: 2px solid rgba(255, 255, 255, 0.75);
+    overflow: hidden;
+    position: relative;
+}
+#shield-fill {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(180deg, #b8fbff 0%, var(--cyan) 45%, var(--cyan-deep) 100%);
+    box-shadow: 0 0 10px var(--cyan);
+    transition: width 0.12s linear;
+}
+#shield::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(90deg, transparent 0 22px, rgba(0,0,0,0.35) 22px 24px);
+}
+#shield.down { border-color: #ff6b6b; animation: shieldBlink 0.5s infinite; }
+@keyframes shieldBlink { 50% { border-color: rgba(255,255,255,0.4); } }
+#shield-label {
+    font-family: var(--title-font);
+    font-size: 10px;
+    letter-spacing: 2px;
+    margin-top: 4px;
+    opacity: 0.8;
+}
+
+/* Compass (top-center) */
+#compass {
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(560px, 50vw);
+    height: 38px;
+    overflow: hidden;
+    border-radius: 19px;
+    background: linear-gradient(90deg, transparent, rgba(30,14,22,0.45) 15%, rgba(30,14,22,0.45) 85%, transparent);
+}
+#compass::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 3px;
+    width: 2px;
+    height: 10px;
+    margin-left: -1px;
+    background: var(--gold);
+    box-shadow: 0 0 6px var(--gold);
+}
+#compass-strip { position: absolute; inset: 0; }
+.cmp {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--title-font);
+    font-size: 14px;
+    white-space: nowrap;
+    text-align: center;
+    line-height: 1;
+}
+.cmp.minor { font-size: 9px; opacity: 0.55; }
+.cmp.marker { font-size: 0; }
+.cmp.marker .ico {
+    display: block;
+    width: 18px;
+    height: 18px;
+    margin: 0 auto;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 8px currentColor;
+}
+.cmp.marker .dist {
+    display: block;
+    font-family: var(--body-font);
+    font-weight: 800;
+    font-size: 10px;
+    margin-top: 1px;
+}
+
+/* Objective under the compass */
+#objective {
+    position: absolute;
+    top: 64px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-weight: 800;
+    font-size: 17px;
+    text-align: center;
+    max-width: 70vw;
+    transition: opacity 0.4s;
+}
+#objective .obj-tag {
+    display: inline-block;
+    font-family: var(--title-font);
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--gold);
+    margin-right: 8px;
+    vertical-align: 2px;
+}
+#objective.flash { animation: objFlash 1.2s; }
+@keyframes objFlash {
+    0% { transform: translateX(-50%) scale(1.25); color: var(--gold); }
+    100% { transform: translateX(-50%) scale(1); }
+}
+
+/* Ship parts tracker (top-right) */
+#parts {
+    position: absolute;
+    top: 20px;
+    right: 24px;
+    text-align: right;
+}
+#parts .label {
+    font-family: var(--title-font);
+    font-size: 11px;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+    opacity: 0.9;
+}
+#parts .slots { display: flex; gap: 6px; justify-content: flex-end; }
+.slot {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: var(--panel);
+    border: 2px solid rgba(255,255,255,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: all 0.3s;
+}
+.slot svg { width: 32px; height: 32px; opacity: 0.3; filter: grayscale(1); transition: all 0.3s; }
+.slot.have { border-color: var(--gold); box-shadow: 0 0 12px rgba(255, 209, 102, 0.55); }
+.slot.have svg { opacity: 1; filter: none; }
+.slot.installed::after {
+    content: '✓';
+    position: absolute;
+    right: -5px;
+    bottom: -7px;
+    font-size: 15px;
+    font-weight: 900;
+    color: #7dff9a;
+}
+.slot.pop { animation: slotPop 0.7s; }
+@keyframes slotPop {
+    0% { transform: scale(1); }
+    30% { transform: scale(1.5); }
+    100% { transform: scale(1); }
+}
+
+/* Minimap (bottom-left) */
+#minimap-wrap {
+    position: absolute;
+    left: 24px;
+    bottom: 24px;
+    width: 172px;
+    height: 172px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 244, 224, 0.85);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.45), inset 0 0 18px rgba(0,0,0,0.5);
+    overflow: hidden;
+    background: #6b3424;
+}
+#minimap { width: 100%; height: 100%; display: block; }
+#minimap-n {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+    font-family: var(--title-font);
+    font-size: 11px;
+    text-align: center;
+    line-height: 18px;
+    color: var(--ink);
+    background: var(--cream);
+    border-radius: 50%;
+    text-shadow: none;
+}
+
+/* Weapon panel (bottom-right) */
+#weapon {
+    position: absolute;
+    right: 26px;
+    bottom: 26px;
+    text-align: right;
+}
+#weapon .wname {
+    font-family: var(--title-font);
+    font-size: 12px;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+}
+#heat {
+    width: 190px;
+    height: 12px;
+    border-radius: 6px;
+    background: rgba(10, 30, 45, 0.6);
+    border: 2px solid rgba(255,255,255,0.75);
+    overflow: hidden;
+    margin-left: auto;
+}
+#heat-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--cyan), #ffe066 60%, #ff5b3a);
+    background-size: 190px 100%;
+}
+#heat.over { border-color: #ff5b3a; animation: shieldBlink 0.25s infinite; }
+#heat-label {
+    font-size: 11px;
+    font-weight: 900;
+    margin-top: 3px;
+    height: 14px;
+    color: #ff8a6a;
+}
+#grenades {
+    margin-top: 8px;
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    align-items: center;
+    font-family: var(--title-font);
+    font-size: 12px;
+}
+.gren {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #e8fdff, #4fd6ff 45%, #1677b8 100%);
+    box-shadow: 0 0 8px #4fd6ff;
+}
+.gren.empty { background: rgba(255,255,255,0.15); box-shadow: none; }
+
+/* Crosshair */
+#crosshair {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 26px;
+    height: 26px;
+    margin: -13px 0 0 -13px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 0 3px rgba(0,0,0,0.6), inset 0 0 3px rgba(0,0,0,0.4);
+    transition: transform 0.1s, border-color 0.1s;
+}
+#crosshair::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 4px;
+    height: 4px;
+    margin: -2px 0 0 -2px;
+    border-radius: 50%;
+    background: #fff;
+}
+#crosshair.target { border-color: #ff5b5b; transform: scale(0.8); }
+#crosshair.target::after { background: #ff5b5b; }
+#crosshair.hot { border-color: #ff9a3d; }
+#hitmarker {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 34px;
+    height: 34px;
+    margin: -17px 0 0 -17px;
+    opacity: 0;
+}
+#hitmarker::before, #hitmarker::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 3px;
+    height: 100%;
+    margin-left: -1.5px;
+    background: linear-gradient(#fff 0 30%, transparent 30% 70%, #fff 70%);
+    transform: rotate(45deg);
+}
+#hitmarker::after { transform: rotate(-45deg); }
+#hitmarker.show { animation: hitmark 0.22s; }
+#hitmarker.kill::before, #hitmarker.kill::after {
+    background: linear-gradient(#ffd166 0 30%, transparent 30% 70%, #ffd166 70%);
+}
+@keyframes hitmark { 0% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0; transform: scale(1); } }
+
+/* Interaction prompt */
+#prompt {
+    position: absolute;
+    left: 50%;
+    top: 63%;
+    transform: translateX(-50%);
+    padding: 9px 18px 9px 10px;
+    border-radius: 24px;
+    background: var(--panel);
+    border: 2px solid rgba(255,255,255,0.35);
+    font-weight: 900;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+}
+.key {
+    display: inline-block;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--cream);
+    color: var(--ink);
+    font-family: var(--title-font);
+    font-size: 15px;
+    line-height: 30px;
+    text-align: center;
+    text-shadow: none;
+    box-shadow: 0 3px 0 #b39b80;
+}
+
+/* Toasts (right side) */
+#toasts {
+    position: absolute;
+    right: 26px;
+    top: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+.toast {
+    padding: 8px 16px;
+    border-radius: 20px;
+    background: var(--panel);
+    border: 2px solid rgba(255, 209, 102, 0.7);
+    font-weight: 900;
+    font-size: 15px;
+    animation: toastIn 0.3s ease-out, toastOut 0.5s ease-in forwards;
+    animation-delay: 0s, var(--life, 2.6s);
+}
+@keyframes toastIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes toastOut { to { transform: translateX(40px); opacity: 0; } }
+
+/* Big centered announcement (part found, force field down) */
+#announce {
+    position: absolute;
+    left: 50%;
+    top: 30%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    opacity: 0;
+}
+#announce .a-small {
+    font-family: var(--title-font);
+    font-size: 16px;
+    letter-spacing: 4px;
+    color: var(--gold);
+}
+#announce .a-big {
+    font-family: var(--title-font);
+    font-size: 46px;
+    letter-spacing: 2px;
+    margin-top: 4px;
+    text-shadow: 0 3px 0 rgba(0,0,0,0.35), 0 0 24px rgba(255, 209, 102, 0.6);
+}
+#announce.show { animation: announce 3s ease-out forwards; }
+@keyframes announce {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+    10% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* BotW-style area title */
+#zone-banner {
+    position: absolute;
+    left: 50%;
+    top: 21%;
+    transform: translateX(-50%);
+    text-align: center;
+    opacity: 0;
+    white-space: nowrap;
+}
+#zone-banner .zb-small {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 5px;
+    opacity: 0.9;
+}
+#zone-banner .zb-big {
+    font-family: var(--title-font);
+    font-size: 40px;
+    letter-spacing: 4px;
+    margin: 6px 0;
+    padding: 0 30px;
+    position: relative;
+}
+#zone-banner .zb-line {
+    height: 2px;
+    width: 100%;
+    background: linear-gradient(90deg, transparent, var(--cream), transparent);
+}
+#zone-banner.show { animation: zoneBanner 4.2s ease-in-out forwards; }
+@keyframes zoneBanner {
+    0% { opacity: 0; letter-spacing: 12px; }
+    15% { opacity: 1; letter-spacing: 4px; }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* Boss bar */
+#boss {
+    position: absolute;
+    left: 50%;
+    top: 96px;
+    transform: translateX(-50%);
+    width: min(520px, 60vw);
+    text-align: center;
+}
+#boss .boss-name {
+    font-family: var(--title-font);
+    font-size: 15px;
+    letter-spacing: 3px;
+    color: var(--gold);
+    margin-bottom: 5px;
+}
+.boss-bar {
+    height: 12px;
+    border-radius: 6px;
+    background: rgba(20, 8, 14, 0.65);
+    border: 2px solid rgba(255,255,255,0.7);
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+.boss-bar > div { height: 100%; transition: width 0.15s; }
+#boss-shield { background: linear-gradient(180deg, #c6fbff, var(--cyan) 50%, var(--cyan-deep)); }
+#boss-health { background: linear-gradient(180deg, #ffe7a3, var(--gold) 50%, #d98b1a); }
+
+/* Damage + low health */
+#damage {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 45%, rgba(255, 60, 40, 0.55) 100%);
+    opacity: 0;
+    transition: opacity 0.35s;
+}
+#lowhp {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(255, 30, 60, 0.4) 100%);
+    opacity: 0;
+}
+#lowhp.on { animation: lowPulse 1s infinite; }
+@keyframes lowPulse { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.9; } }
+#shieldhit {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(110, 240, 255, 0.45) 100%);
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+/* ============================================================
+   CINEMATIC LAYERS
+   ============================================================ */
+#letterbox .lb {
+    position: fixed;
+    left: 0;
+    right: 0;
+    height: 11vh;
+    background: #000;
+    z-index: 8;
+    transition: transform 0.8s ease;
+}
+#letterbox .lb.top { top: 0; transform: translateY(-100%); }
+#letterbox .lb.bottom { bottom: 0; transform: translateY(100%); }
+#letterbox.on .lb { transform: none; }
+
+#caption {
+    position: fixed;
+    left: 50%;
+    bottom: 13.5vh;
+    transform: translateX(-50%);
+    z-index: 9;
+    width: min(900px, 90vw);
+    text-align: center;
+    font-family: var(--title-font);
+    font-size: clamp(20px, 2.6vw, 34px);
+    line-height: 1.3;
+    color: #fff;
+    text-shadow: 0 3px 0 rgba(0,0,0,0.6), 0 0 18px rgba(0,0,0,0.6);
+    pointer-events: none;
+    white-space: pre-line;
+}
+#caption.alarm { color: #ff6b5b; }
+#caption.computer { color: var(--cyan); }
+#caption.big { font-size: clamp(30px, 5vw, 64px); }
+
+#alarm-flash {
+    position: fixed;
+    inset: 0;
+    z-index: 7;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(255, 30, 30, 0.05) 30%, rgba(255, 20, 20, 0.55) 100%);
+    opacity: 0;
+}
+#alarm-flash.on { animation: alarmPulse 0.9s infinite; }
+@keyframes alarmPulse { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+
+#skip-hint {
+    position: fixed;
+    right: 22px;
+    bottom: calc(11vh + 12px);
+    z-index: 9;
+    font-weight: 800;
+    font-size: 13px;
+    opacity: 0.75;
+    pointer-events: none;
+}
+
+#title-card {
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 1.2s;
+}
+#title-card.on { opacity: 1; }
+
+#fade {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: #000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.6s;
+}
+#fade.white { background: #fff; }
+
+/* ============================================================
+   SCREENS / MENUS
+   ============================================================ */
+.screen {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.logo { text-align: center; line-height: 1; }
+.logo .l1 {
+    font-family: var(--title-font);
+    font-size: clamp(54px, 9vw, 120px);
+    letter-spacing: 4px;
+    color: #fff;
+    text-shadow:
+        0 4px 0 #c44d2c,
+        0 8px 0 #8a2c1e,
+        0 14px 30px rgba(0,0,0,0.55);
+}
+.logo .l2 {
+    font-family: var(--title-font);
+    font-size: clamp(22px, 3.4vw, 44px);
+    letter-spacing: clamp(10px, 2vw, 26px);
+    color: var(--gold);
+    margin-top: 14px;
+    text-shadow: 0 3px 0 #8a4b12, 0 8px 20px rgba(0,0,0,0.5);
+    padding-left: clamp(10px, 2vw, 26px);
+}
+.byline {
+    margin-top: 14px;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 3px;
+    opacity: 0.9;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+}
+
+#screen-title {
+    flex-direction: column;
+    justify-content: flex-start;
+    padding-top: 9vh;
+    background: linear-gradient(180deg, rgba(30, 10, 20, 0.35) 0%, transparent 30%, transparent 55%, rgba(30, 10, 20, 0.75) 100%);
+}
+.menu {
+    margin-top: auto;
+    margin-bottom: 7vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+.btn {
+    pointer-events: auto;
+    font-family: var(--title-font);
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--ink);
+    background: linear-gradient(180deg, #fff9ee, #ffe2b8);
+    border: none;
+    border-radius: 14px;
+    padding: 14px 34px;
+    min-width: 290px;
+    cursor: pointer;
+    box-shadow: 0 5px 0 #b56a3a, 0 10px 22px rgba(0,0,0,0.4);
+    transition: transform 0.08s, box-shadow 0.08s, filter 0.15s;
+}
+.btn:hover, .btn:focus-visible { filter: brightness(1.08); transform: translateY(-2px); box-shadow: 0 7px 0 #b56a3a, 0 12px 24px rgba(0,0,0,0.45); outline: none; }
+.btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #b56a3a, 0 4px 10px rgba(0,0,0,0.4); }
+.btn.primary { background: linear-gradient(180deg, #ffd68a, #ff9a4a); font-size: 26px; padding: 16px 40px; }
+.btn.small { font-size: 15px; padding: 10px 20px; min-width: 0; }
+.btn.ghost {
+    background: rgba(255, 244, 224, 0.12);
+    color: var(--cream);
+    box-shadow: 0 0 0 2px rgba(255, 244, 224, 0.5);
+}
+.btn.ghost:hover, .btn.ghost:focus-visible { box-shadow: 0 0 0 2px var(--cream); }
+
+.difficulty {
+    display: flex;
+    gap: 8px;
+    margin: 4px 0 6px;
+    pointer-events: auto;
+}
+.diff {
+    font-family: var(--body-font);
+    font-weight: 900;
+    font-size: 15px;
+    color: var(--cream);
+    background: rgba(30, 14, 22, 0.55);
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 20px;
+    padding: 8px 16px;
+    cursor: pointer;
+    text-align: center;
+    line-height: 1.15;
+}
+.diff small { display: block; font-weight: 700; font-size: 11px; opacity: 0.75; }
+.diff.on { border-color: var(--gold); background: rgba(255, 209, 102, 0.22); box-shadow: 0 0 14px rgba(255, 209, 102, 0.35); }
+.diff:focus-visible { outline: 2px solid var(--cream); }
+
+.backlink {
+    position: absolute;
+    left: 22px;
+    top: 18px;
+    font-weight: 800;
+    font-size: 14px;
+    color: var(--cream);
+    text-decoration: none;
+    opacity: 0.8;
+    pointer-events: auto;
+}
+.backlink:hover { opacity: 1; text-decoration: underline; }
+
+.notice {
+    max-width: 520px;
+    text-align: center;
+    font-weight: 800;
+    font-size: 14px;
+    background: rgba(30, 14, 22, 0.7);
+    border: 2px solid rgba(255, 209, 102, 0.6);
+    border-radius: 12px;
+    padding: 10px 16px;
+}
+
+.panel {
+    pointer-events: auto;
+    background: rgba(30, 14, 22, 0.82);
+    border: 2px solid rgba(255, 244, 224, 0.35);
+    border-radius: 20px;
+    padding: 28px 34px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    max-width: min(760px, 94vw);
+    max-height: 92vh;
+    overflow: auto;
+}
+.panel h2 {
+    font-family: var(--title-font);
+    font-size: 34px;
+    letter-spacing: 3px;
+    text-align: center;
+    margin-bottom: 18px;
+}
+.controls-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 9px 16px;
+    align-items: center;
+    font-weight: 800;
+    font-size: 16px;
+}
+.controls-grid .keys { text-align: right; white-space: nowrap; }
+.controls-grid .key { margin-left: 3px; }
+.tip { margin-top: 16px; font-size: 14px; font-weight: 700; opacity: 0.85; text-align: center; }
+
+#screen-pause { background: rgba(20, 8, 14, 0.55); }
+.pause-cols { display: flex; gap: 30px; flex-wrap: wrap; justify-content: center; }
+.pause-cols > div { min-width: 260px; }
+.pause-buttons { display: flex; flex-direction: column; gap: 12px; }
+.sliders { margin-top: 18px; display: grid; gap: 10px; font-weight: 800; font-size: 14px; }
+.sliders label { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 10px; }
+.sliders input[type=range] { accent-color: var(--orange); width: 100%; }
+
+#screen-dead { pointer-events: none; background: radial-gradient(ellipse at center, rgba(40, 10, 30, 0.2), rgba(40, 10, 30, 0.75)); }
+.dead-title {
+    font-family: var(--title-font);
+    font-size: clamp(44px, 7vw, 86px);
+    color: #fff;
+    text-align: center;
+    text-shadow: 0 5px 0 #8a2c55, 0 12px 30px rgba(0,0,0,0.6);
+    animation: dizzy 1.4s ease-in-out infinite;
+}
+@keyframes dizzy { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+.dead-sub { text-align: center; font-weight: 800; font-size: 18px; margin-top: 14px; }
+
+#screen-end { background: radial-gradient(ellipse at center, rgba(10, 10, 30, 0.35), rgba(5, 5, 15, 0.85)); }
+.end-wrap { text-align: center; }
+.stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(150px, auto));
+    gap: 10px 26px;
+    justify-content: center;
+    margin: 26px auto 20px;
+    font-weight: 800;
+    font-size: 17px;
+}
+.stats .v { font-family: var(--title-font); color: var(--gold); font-size: 22px; }
+.credits { font-weight: 800; font-size: 16px; line-height: 1.7; opacity: 0.92; margin-bottom: 22px; }
+.credits b { color: var(--gold); }
+.end-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.end-buttons .btn { display: inline-flex; align-items: center; justify-content: center; }
+
+#screen-loading { background: #1b0f14; flex-direction: column; }
+.loadbar {
+    margin-top: 34px;
+    width: min(360px, 70vw);
+    height: 12px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.12);
+    overflow: hidden;
+}
+#loadfill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--orange), var(--gold)); transition: width 0.2s; }
+#loadtext { margin-top: 12px; font-weight: 800; font-size: 14px; opacity: 0.8; }
+
+#click-resume {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 25;
+    pointer-events: auto;
+}
+
+@media (max-width: 700px) {
+    #minimap-wrap { width: 120px; height: 120px; left: 12px; bottom: 12px; }
+    #parts .slot { width: 34px; height: 34px; }
+    #parts .slot svg { width: 24px; height: 24px; }
+    #compass { width: 70vw; }
+    #objective { font-size: 14px; top: 60px; }
+    .btn { min-width: 220px; font-size: 18px; }
+}
+</style>
+<script type="importmap">
+{
+    "imports": {
+        "three": "./vendor/three.module.min.js"
+    }
+}
+</script>
+</head>
+<body>
+
+<canvas id="game" tabindex="0"></canvas>
+<div id="vignette"></div>
+
+<!-- ======================= HUD ======================= -->
+<div id="hud" class="hidden">
+    <div id="damage"></div>
+    <div id="shieldhit"></div>
+    <div id="lowhp"></div>
+
+    <div id="vitals">
+        <div id="hearts"></div>
+        <div id="shield"><div id="shield-fill"></div></div>
+    </div>
+
+    <div id="compass"><div id="compass-strip"></div></div>
+    <div id="objective"></div>
+
+    <div id="parts">
+        <div class="label">SHIP PARTS <span id="parts-count">0/5</span></div>
+        <div class="slots" id="part-slots"></div>
+    </div>
+
+    <div id="boss" class="hidden">
+        <div class="boss-name">ALIEN CAPTAIN</div>
+        <div class="boss-bar"><div id="boss-shield"></div></div>
+        <div class="boss-bar"><div id="boss-health"></div></div>
+    </div>
+
+    <div id="minimap-wrap"><canvas id="minimap" width="172" height="172"></canvas></div>
+
+    <div id="weapon">
+        <div class="wname">PLASMA BLASTER</div>
+        <div id="heat"><div id="heat-fill"></div></div>
+        <div id="heat-label"></div>
+        <div id="grenades"></div>
+    </div>
+
+    <div id="crosshair"></div>
+    <div id="hitmarker"></div>
+    <div id="prompt" class="hidden"></div>
+    <div id="toasts"></div>
+    <div id="announce"><div class="a-small"></div><div class="a-big"></div></div>
+    <div id="zone-banner">
+        <div class="zb-small">ENTERING</div>
+        <div class="zb-line"></div>
+        <div class="zb-big"></div>
+        <div class="zb-line"></div>
+    </div>
+</div>
+
+<!-- ======================= CINEMATICS ======================= -->
+<div id="alarm-flash"></div>
+<div id="letterbox"><div class="lb top"></div><div class="lb bottom"></div></div>
+<div id="caption"></div>
+<div id="skip-hint" class="hidden">Press <span class="key">ENTER</span> to skip</div>
+<div id="title-card">
+    <div class="logo"><div class="l1">STRANDED</div><div class="l2">ON MARS</div></div>
+</div>
+<div id="fade"></div>
+
+<!-- ======================= LOADING ======================= -->
+<div id="screen-loading" class="screen">
+    <div class="logo"><div class="l1">STRANDED</div><div class="l2">ON MARS</div></div>
+    <div class="loadbar"><div id="loadfill"></div></div>
+    <div id="loadtext">Building Mars...</div>
+</div>
+
+<!-- ======================= TITLE ======================= -->
+<div id="screen-title" class="screen hidden">
+    <a class="backlink" href="/">&larr; Lincoln's Arcade</a>
+    <div class="logo"><div class="l1">STRANDED</div><div class="l2">ON MARS</div></div>
+    <div class="byline">A GAME BY LINCOLN KENYON</div>
+    <div class="menu">
+        <div id="touch-notice" class="notice hidden">This game needs a keyboard + mouse (or a game controller). Plug one in to play!</div>
+        <button class="btn primary" id="btn-start">START MISSION</button>
+        <button class="btn hidden" id="btn-continue">CONTINUE</button>
+        <div class="difficulty" id="difficulty">
+            <button class="diff" data-d="easy">CADET<small>easy</small></button>
+            <button class="diff on" data-d="normal">PILOT<small>normal</small></button>
+            <button class="diff" data-d="hard">COMMANDER<small>hard</small></button>
+        </div>
+        <button class="btn small ghost" id="btn-howto">HOW TO PLAY</button>
+    </div>
+</div>
+
+<!-- ======================= HOW TO PLAY ======================= -->
+<div id="screen-howto" class="screen hidden" style="background: rgba(20,8,14,0.6)">
+    <div class="panel">
+        <h2>HOW TO PLAY</h2>
+        <div class="controls-grid" id="controls-grid-1"></div>
+        <p class="tip">Find the 5 missing pieces of your ship, beat the aliens guarding the way, then fix your ship and fly to the Moon!</p>
+        <div style="text-align:center;margin-top:18px"><button class="btn small" id="btn-howto-close">GOT IT!</button></div>
+    </div>
+</div>
+
+<!-- ======================= PAUSE ======================= -->
+<div id="screen-pause" class="screen hidden">
+    <div class="panel">
+        <h2>PAUSED</h2>
+        <div class="pause-cols">
+            <div>
+                <div class="pause-buttons">
+                    <button class="btn primary" id="btn-resume">RESUME</button>
+                    <button class="btn small" id="btn-checkpoint">BACK TO CHECKPOINT</button>
+                    <button class="btn small ghost" id="btn-quit">QUIT TO TITLE</button>
+                </div>
+                <div class="sliders">
+                    <label>Volume <input type="range" id="sl-volume" min="0" max="1" step="0.05" value="0.8"></label>
+                    <label>Music <input type="range" id="sl-music" min="0" max="1" step="0.05" value="0.6"></label>
+                    <label>Mouse speed <input type="range" id="sl-sens" min="0.3" max="2.5" step="0.05" value="1"></label>
+                    <label>Invert look <input type="checkbox" id="cb-invert" style="width:20px;height:20px;accent-color:#ff8a3d"></label>
+                </div>
+            </div>
+            <div class="controls-grid" id="controls-grid-2"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ======================= KNOCKED OUT ======================= -->
+<div id="screen-dead" class="screen hidden">
+    <div>
+        <div class="dead-title">KNOCKED OUT!</div>
+        <div class="dead-sub">Heading back to your last checkpoint...</div>
+    </div>
+</div>
+
+<!-- ======================= THE END ======================= -->
+<div id="screen-end" class="screen hidden">
+    <div class="panel end-wrap" style="background: rgba(10,10,25,0.75)">
+        <div class="logo"><div class="l1" style="font-size:clamp(48px,7vw,90px)">THE END</div></div>
+        <div class="byline" style="color:var(--gold)">MISSION COMPLETE &mdash; YOU MADE IT TO THE MOON!</div>
+        <div class="stats" id="end-stats"></div>
+        <div class="credits">
+            Story &amp; game idea by <b>Lincoln Kenyon</b><br>
+            Built with Dad (and a little help from Claude)
+        </div>
+        <div class="end-buttons">
+            <button class="btn primary" id="btn-again">PLAY AGAIN</button>
+            <a class="btn ghost" href="/" style="text-decoration:none;display:inline-block">ARCADE</a>
+        </div>
+    </div>
+</div>
+
+<button id="click-resume" class="btn primary hidden">CLICK TO PLAY</button>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
