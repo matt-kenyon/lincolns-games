@@ -273,15 +273,22 @@ export class Player {
         this.invuln = Math.max(0, this.invuln - dt);
 
         // ---------------- look ----------------
-        const sens = g.settings.sensitivity * 0.0022;
-        const inv = g.settings.invert ? -1 : 1;
+        // Mouse sensitivity scales the mouse, look sensitivity scales a controller's stick,
+        // and "up/down speed" scales vertical looking for both.
+        const S = g.settings;
+        const mouseSens = S.sensitivity * 0.0022;
+        const padSens = S.lookSensitivity * 0.0022;
+        const inv = S.invert ? -1 : 1;
+        const padX = input.padLookX || 0, padY = input.padLookY || 0;
+        const dYaw = input.lookX * mouseSens + padX * padSens;
+        const dPitch = (input.lookY * mouseSens + padY * padSens) * S.verticalLook * inv;
         if (!this.locked && !this.dead) {
-            this.yaw -= input.lookX * sens;
-            this.pitch -= input.lookY * sens * inv;
+            this.yaw -= dYaw;
+            this.pitch -= dPitch;
             this.pitch = clamp(this.pitch, -1.48, 1.48);
         }
-        this.lookDX = input.lookX;
-        this.lookDY = input.lookY;
+        this.lookDX = input.lookX + padX;
+        this.lookDY = input.lookY + padY;
         this.recoilPitch = damp(this.recoilPitch, 0, 10, dt);
 
         // ---------------- move ----------------

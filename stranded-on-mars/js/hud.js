@@ -27,7 +27,7 @@ export const CONTROLS_HTML = `
     <div class="keys"><span class="key">SPACE</span></div><div>Jump (Mars gravity = huge jumps!)</div>
     <div class="keys"><span class="key">SHIFT</span></div><div>Sprint</div>
     <div class="keys"><span class="key">E</span></div><div>Pick up / use</div>
-    <div class="keys"><span class="key">ESC</span></div><div>Pause</div>
+    <div class="keys"><span class="key">ESC</span></div><div>Pause + settings (mouse sensitivity)</div>
     <div class="keys"><span class="key">M</span></div><div>Mute sound</div>
     <div class="keys"><span class="key">🎮</span></div><div>Game controller works too!</div>
 `;

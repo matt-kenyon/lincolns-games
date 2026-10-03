@@ -18,13 +18,13 @@ import { Cinematics } from './cinematics.js';
 import { DIFFICULTY } from './config.js';
 import { CHECKPOINTS, pathPointAt, SHIP, PART_ORDER, ZONES, zoneAtS, GATES } from './layout.js';
 import { partSlotWorld } from './ship.js';
-import { store, clamp, damp, lerp, easeInOut } from './util.js';
+import { clamp, damp, lerp, easeInOut } from './util.js';
+import { loadSettings, saveSettings, mountSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
-const SETTINGS_KEY = 'strandedOnMars.settings';
 
 class Game {
     constructor() {
@@ -40,10 +40,7 @@ class Game {
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.25, 4500);
         this.scene.add(this.camera);
-        this.settings = Object.assign(
-            { volume: 0.8, music: 0.6, sensitivity: 1, invert: false, difficulty: 'normal' },
-            store.get(SETTINGS_KEY, {}),
-        );
+        this.settings = loadSettings();
         this.diffKey = this.settings.difficulty;
         this.diff = DIFFICULTY[this.diffKey] || DIFFICULTY.normal;
         this.stats = { aliens: 0, deaths: 0, shots: 0, time: 0 };
@@ -110,7 +107,7 @@ class Game {
         const setDiff = (d) => {
             this.settings.difficulty = d;
             diffs.forEach((b) => b.classList.toggle('on', b.dataset.d === d));
-            store.set(SETTINGS_KEY, this.settings);
+            saveSettings(this.settings);
         };
         setDiff(this.settings.difficulty);
         diffs.forEach((b) => b.addEventListener('click', () => {
@@ -126,6 +123,12 @@ class Game {
             $('screen-howto').classList.remove('hidden');
         });
         $('btn-howto-close').addEventListener('click', () => $('screen-howto').classList.add('hidden'));
+        $('btn-settings').addEventListener('click', () => {
+            this.audio.init();
+            this.audio.play('uiSelect');
+            $('screen-settings').classList.remove('hidden');
+        });
+        $('btn-settings-done').addEventListener('click', () => $('screen-settings').classList.add('hidden'));
         $('btn-resume').addEventListener('click', () => this.resume());
         $('click-resume').addEventListener('click', () => this.resume());
         $('btn-checkpoint').addEventListener('click', () => {
@@ -139,24 +142,13 @@ class Game {
         $('btn-again').addEventListener('click', () => {
             location.href = location.pathname + (DEBUG ? '?debug' : '');
         });
-        const sl = (id, key, fn) => {
-            const el = $(id);
-            el.value = this.settings[key];
-            el.addEventListener('input', () => {
-                this.settings[key] = parseFloat(el.value);
-                fn && fn(this.settings[key]);
-                store.set(SETTINGS_KEY, this.settings);
-            });
+        // Sensitivity + sound settings (title SETTINGS screen and pause menu share them)
+        const onSetting = (key, value) => {
+            if (key === 'volume') this.audio.setVolume(value);
+            if (key === 'music') this.audio.setMusicVolume(value);
         };
-        sl('sl-volume', 'volume', (v) => this.audio.setVolume(v));
-        sl('sl-music', 'music', (v) => this.audio.setMusicVolume(v));
-        sl('sl-sens', 'sensitivity');
-        const inv = $('cb-invert');
-        inv.checked = !!this.settings.invert;
-        inv.addEventListener('change', () => {
-            this.settings.invert = inv.checked;
-            store.set(SETTINGS_KEY, this.settings);
-        });
+        mountSettings($('settings-title'), this.settings, onSetting);
+        mountSettings($('settings-pause'), this.settings, onSetting);
         // touch-only devices
         const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches;
         $('touch-notice').classList.toggle('hidden', !coarse);
@@ -270,6 +262,7 @@ class Game {
     pause() {
         if (this.state !== 'play') return;
         this.setState('paused');
+        $('click-resume').classList.add('hidden');
         $('screen-pause').classList.remove('hidden');
         this.input.exitLock();
         this.audio.heartbeat(false);
@@ -451,7 +444,8 @@ class Game {
         this.world.update(dt, this.camera, this.camera.position);
         this.effects.update(dt);
         this.renderWorld(false);
-        if (inp.confirm && $('screen-howto').classList.contains('hidden') && this.stateT > 0.5) this.newGame();
+        const menuOpen = !$('screen-howto').classList.contains('hidden') || !$('screen-settings').classList.contains('hidden');
+        if (inp.confirm && !menuOpen && this.stateT > 0.5) this.newGame();
     }
 
     updateCinematic(dt, inp) {
@@ -630,7 +624,7 @@ class Game {
             // Run gameplay for N seconds without rendering (for automated tests)
             simulate(seconds, inp = {}, track = null) {
                 const dt = 1 / 30;
-                const base = { moveX: 0, moveY: 0, lookX: 0, lookY: 0, jump: false, sprint: false, fire: false, grenade: false, grenadePressed: false, interact: false, pause: false, confirm: false, skip: false };
+                const base = { moveX: 0, moveY: 0, lookX: 0, lookY: 0, padLookX: 0, padLookY: 0, jump: false, sprint: false, fire: false, grenade: false, grenadePressed: false, interact: false, pause: false, confirm: false, skip: false };
                 let maxY = -1e9;
                 for (let t = 0; t < seconds; t += dt) {
                     const i = Object.assign({}, base, inp);

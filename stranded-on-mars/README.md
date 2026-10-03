@@ -23,6 +23,10 @@ bundled copy of [three.js](https://threejs.org) in `vendor/`.
 
 An Xbox-style game controller works too.
 
+**Settings** (the SETTINGS button on the title screen, or press Esc to pause): mouse sensitivity, look
+sensitivity for a game controller's right stick, up/down look speed, invert up/down, volume and music. They're
+saved in the browser, and RESET LOOK SETTINGS puts the look options back to normal.
+
 ## Where things live
 
 | File | What's in it |

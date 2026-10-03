@@ -24,14 +24,17 @@ export class Input {
         this.enabled = true;
 
         window.addEventListener('keydown', (e) => {
+            // let menu sliders/checkboxes use arrow keys and space normally
+            const t = e.target;
+            const inForm = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
             if (e.repeat) {
-                if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+                if (!inForm && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
                 return;
             }
             this.keys.add(e.code);
             this.pressed.add(e.code);
             this.usingGamepad = false;
-            if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
+            if (!inForm && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
         });
         window.addEventListener('keyup', (e) => {
             this.keys.delete(e.code);
@@ -99,7 +102,9 @@ export class Input {
     poll(dt) {
         const k = this.keys;
         const s = {
-            moveX: 0, moveY: 0, lookX: this.mdx, lookY: this.mdy,
+            moveX: 0, moveY: 0,
+            lookX: this.mdx, lookY: this.mdy,   // mouse movement (pixels)
+            padLookX: 0, padLookY: 0,           // controller right stick (pixel-equivalents)
             jump: this.pressed.has('Space'),
             sprint: k.has('ShiftLeft') || k.has('ShiftRight'),
             fire: this.mouseL,
@@ -132,8 +137,8 @@ export class Input {
             if (any) this.usingGamepad = true;
             if (lx || ly) { s.moveX += lx; s.moveY -= ly; }
             const curve = (v) => Math.sign(v) * v * v;
-            s.lookX += curve(rx) * 1250 * dt;
-            s.lookY += curve(ry) * 900 * dt;
+            s.padLookX += curve(rx) * 1250 * dt;
+            s.padLookY += curve(ry) * 900 * dt;
             if (this.padPressed.has(0)) { s.jump = true; s.confirm = true; }
             if (b[10] || b[11]) s.sprint = true;
             if (b[7]) s.fire = true;
