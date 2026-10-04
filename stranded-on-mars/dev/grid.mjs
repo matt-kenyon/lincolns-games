@@ -15,7 +15,7 @@ const html = `<html><body style="margin:0;background:#000;display:grid;grid-temp
     + imgs.map((f) => `<div style="position:relative"><img style="width:${w}px;height:${h}px;display:block" src="data:image/png;base64,${fs.readFileSync(f).toString('base64')}">`
         + `<span style="position:absolute;left:6px;top:4px;color:#ff0;font:bold 16px sans-serif;text-shadow:0 0 3px #000">${path.basename(f)}</span></div>`).join('')
     + '</body></html>';
-const browser = await chromium.launch();
+const browser = await chromium.launch({ args: ['--mute-audio'] });
 const page = await browser.newPage({ viewport: { width: c * (w + 2), height: Math.ceil(imgs.length / c) * (h + 2) } });
 await page.setContent(html);
 await page.screenshot({ path: out, fullPage: true });
