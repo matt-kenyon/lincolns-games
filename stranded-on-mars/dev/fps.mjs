@@ -9,8 +9,10 @@ const BASE = process.env.BASE_URL || 'http://localhost:8765';
 const which = process.env.BROWSER || 'chrome';
 const browser = which === 'webkit'
     ? await webkit.launch()
-    : await chromium.launch({ channel: which === 'chrome' ? 'chrome' : undefined });
+    : await chromium.launch({ channel: which === 'chrome' ? 'chrome' : undefined, args: ['--mute-audio'] });
 const page = await browser.newPage({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 2 });
+// Mute the game (Matt can hear tests through his speakers): route all WebAudio into a silent gain node, no speech.
+await page.addInitScript(() => { const P = (window.BaseAudioContext || window.AudioContext || window.webkitAudioContext).prototype; const d = Object.getOwnPropertyDescriptor(P, 'destination'); if (d && d.get) Object.defineProperty(P, 'destination', { configurable: true, get() { if (!this.__mute) { this.__mute = this.createGain(); this.__mute.gain.value = 0; this.__mute.connect(d.get.call(this)); } return this.__mute; } }); if (window.speechSynthesis) window.speechSynthesis.speak = () => {}; });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 await page.goto(BASE + '/stranded-on-mars/?debug', { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 90000 });

@@ -32,13 +32,15 @@ if (!file) {
 const steps = JSON.parse(fs.readFileSync(file, 'utf8'));
 
 // Linux containers have no GPU: use the SwiftShader software renderer there.
-const args = ['--autoplay-policy=no-user-gesture-required'];
+const args = ['--autoplay-policy=no-user-gesture-required', '--mute-audio'];
 if (process.platform === 'linux') args.push('--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist');
 const which = process.env.BROWSER || 'chromium';
 const browser = which === 'webkit'
     ? await webkit.launch({ headless: !process.env.HEADED })
     : await chromium.launch({ headless: !process.env.HEADED, args, channel: which === 'chrome' ? 'chrome' : undefined });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+// Mute the game (Matt can hear tests through his speakers): route all WebAudio into a silent gain node, no speech.
+await page.addInitScript(() => { const P = (window.BaseAudioContext || window.AudioContext || window.webkitAudioContext).prototype; const d = Object.getOwnPropertyDescriptor(P, 'destination'); if (d && d.get) Object.defineProperty(P, 'destination', { configurable: true, get() { if (!this.__mute) { this.__mute = this.createGain(); this.__mute.gain.value = 0; this.__mute.connect(d.get.call(this)); } return this.__mute; } }); if (window.speechSynthesis) window.speechSynthesis.speak = () => {}; });
 const logs = [];
 let errors = 0;
 page.on('console', (m) => {
