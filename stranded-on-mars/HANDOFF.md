@@ -90,6 +90,23 @@ look sensitivity, invert, volume).
    are compiled and linked behind the loading/black screens, the space scene and the mothership are built before
    they're needed, shot changes no longer jump, cards and captions run on the cutscene's own clock, and quality is
    pinned during cutscenes. Measure with `dev/cutscene-fps.mjs`.
+6. The October 2026 Mac session (local clone at `~/Projects/lincolns-games`), all on `claude/stranded-on-mars`,
+   **not on `main` yet** until Matt has listened and looked:
+   - **Lincoln's astronaut** redesigned (bubble helmet, blue visor, orange "L" patch, mitten gloves; feet on the
+     ground, knees), and a matching first-person glove and toy ray-gun blaster (`models.js`, `player.js`).
+   - **Aliens** redesigned as blue fanged cartoon critters with per-type looks and full animation (`aliens.js`).
+     Any hit on the head counts as a headshot, lower jaw included (Matt's call).
+   - **GLORBAX**: smooth tube tentacles with suckers, squishy body, expressive eye, red rage phase (`boss.js`).
+   - **Combat effects**: tracers, muzzle flash, impacts, toon poof, cartoon grenade blasts, hit markers, light
+     camera kick and shake, 3-frame hit-stop on kills (`effects.js`, `combat.js`, `hud.js`).
+   - **Audio from files**: recorded sound effects and loops (`audio/sfx/`), layered music (`audio/music/`) in
+     sets: `mix` (Woodland on Mars + our own songs elsewhere, the default for now) and `ours` (our own songs
+     everywhere), plus the classic synth music behind the Classic music setting. GLORBAX's music adds a rage
+     layer after its first roar and fully in the red phase. Debug keys `M`, `Shift+M`, `N`; `dev/soundboard.html`.
+     Our songs are composed as code in `dev/music/`. Sources and licenses: `js/sounds.js` comments, and the
+     git-ignored `dev/audio-src/LICENSES.md` + `MAPPING.md`.
+   - Test browsers are muted (`dev/mute.mjs`), `BROWSER=chrome|webkit` picks the browser, `dev/fps.mjs` measures
+     real frame rates (60 fps everywhere on an M1 Pro).
 
 Decisions and fixes worth knowing about:
 - The mothership was retuned for the reveal: lit from the front (the space sun moves for the capture shots), given a
@@ -118,8 +135,12 @@ A real kid aims worse, so expect 1.5-3 minutes. If Lincoln finds it too hard or 
 - **Real hardware**: performance and feel of level 2 on the Mac (Safari + Chrome) and with a game controller. In
   headless tests the mothership draws fewer triangles than Mars (130-250k vs about 600k) with similar draw calls
   (35-420 depending on the room), so it should run at least as well as Mars.
-- The over-the-shoulder shot of the self-destruct button has Lincoln's helmet filling the left third of the frame.
-  It's fine, but the framing could be nicer.
+- **Waiting on Matt before shipping the October work:** listen to the new sounds and both music sets (nobody has
+  heard them; every pick was made from names and measurements), choose `mix` or `ours` (`MUSIC_SET` in
+  `sounds.js`), approve the end-screen credit line, and decide whether to keep the Sonniss/Mixkit sound effects
+  in the public repo (both licenses allow games; CC0 fallbacks are listed in `dev/audio-src/MAPPING.md`).
+- Weakest new music: the `ours` Mars combat layers and the Alien Captain song (thin free brass/short strings).
+- The over-the-shoulder self-destruct shot still has Lincoln's helmet in about 30% of the frame.
 - Touch devices aren't supported (keyboard/mouse or gamepad only).
 - No automated tests run in CI. The `dev/` tests are run by hand.
 
