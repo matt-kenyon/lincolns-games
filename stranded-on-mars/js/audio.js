@@ -29,9 +29,12 @@ export class AudioEngine {
         this.stageKey = 'mars';
     }
 
+    // Called once at boot (the context starts paused) and again on every click or key press, which
+    // starts or resumes it: browsers only let audio start from a user gesture
     init() {
         if (this.ctx) {
             if (this.ctx.state === 'suspended') this.ctx.resume();
+            this.warmSpeech();
             return;
         }
         const AC = window.AudioContext || window.webkitAudioContext;
@@ -590,6 +593,18 @@ export class AudioEngine {
             u.volume = Math.min(1, this.volume * 0.9);
             synth.cancel();
             synth.speak(u);
+        } catch (e) { /* ignore */ }
+    }
+
+    // Safari loads its speech voices on first use, a ~75 ms hitch: do it on the first click, not mid-cutscene
+    warmSpeech() {
+        if (this.speechWarm || !window.speechSynthesis) return;
+        this.speechWarm = true;
+        try {
+            window.speechSynthesis.getVoices();
+            const u = new SpeechSynthesisUtterance(' ');
+            u.volume = 0;
+            window.speechSynthesis.speak(u);
         } catch (e) { /* ignore */ }
     }
 

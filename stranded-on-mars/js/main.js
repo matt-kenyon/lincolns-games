@@ -95,6 +95,9 @@ class Game {
         this.renderer.compile(this.player.vm.scene, this.player.vm.camera);
         this.cine.warmUp();
         await nextFrame();
+        // Set up audio now, behind the loading screen: opening the audio device takes Chrome a few hundred
+        // milliseconds. It stays paused until the first click or key press (the init() calls in bindUI).
+        this.audio.init();
         progress(1, 'Ready!');
         this.bindUI();
         this.input.onLockChange = (locked) => this.onLockChange(locked);
