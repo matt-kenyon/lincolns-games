@@ -44,6 +44,7 @@ export class HUD {
         this.grenEl = $('grenades');
         this.cross = $('crosshair');
         this.hitEl = $('hitmarker');
+        this.hitEl.innerHTML = '<i class="hm-x"></i><i class="hm-ring"></i><i class="hm-star"></i>';
         this.promptEl = $('prompt');
         this.toastsEl = $('toasts');
         this.objEl = $('objective');
@@ -295,6 +296,7 @@ export class HUD {
             this.bossEl.classList.toggle('rage', !!boss.rage);
         }
 
+        this.animHitMarker(dt);
         this.drawCompass();
         this.mmT = (this.mmT || 0) - dt;
         if (this.mmT <= 0) {
@@ -386,11 +388,39 @@ export class HUD {
         z.classList.add('show');
     }
 
-    hitMarker(kill) {
-        this.hitEl.classList.toggle('kill', !!kill);
-        this.hitEl.classList.remove('show');
-        void this.hitEl.offsetWidth;
-        this.hitEl.classList.add('show');
+    // Your shot landed. kind: 'body', 'head' (gold, with a star), 'shield' (gold ring: it hit the
+    // Captain's shield), 'armor' (grey ring: it bounced off). A kill is bigger and red, with a burst ring.
+    // Animated in update() so it follows game time (and the little freeze on a kill).
+    hitMarker(kill, kind = 'body') {
+        const m = this.hm || (this.hm = { t: 0 });
+        m.t = 0;
+        m.kill = !!kill;
+        m.kind = kind;
+        m.dur = kill ? 0.45 : kind === 'head' ? 0.34 : 0.24;
+        m.spin = kill ? (Math.random() < 0.5 ? -1 : 1) : 0;
+        m.on = true;
+        this.hitEl.className = 'hm-' + kind + (kill ? ' hm-kill' : '');
+        this.animHitMarker(0);
+    }
+
+    animHitMarker(dt) {
+        const m = this.hm;
+        if (!m || !m.on) return;
+        m.t += dt;
+        const k = m.t / m.dur;
+        const el = this.hitEl;
+        if (k >= 1) {
+            m.on = false;
+            el.style.opacity = '0';
+            return;
+        }
+        // pops in big, snaps to size, then fades
+        const snap = Math.min(1, m.t / 0.07);
+        const s = (m.kill ? 1.25 : 1) * (1 + (1 - snap) * (m.kill ? 0.9 : 0.55));
+        const rot = m.spin * (1 - snap) * 30;
+        el.style.opacity = (k < 0.45 ? 1 : 1 - (k - 0.45) / 0.55).toFixed(3);
+        el.style.transform = `scale(${s.toFixed(3)}) rotate(${rot.toFixed(1)}deg)`;
+        el.style.setProperty('--ring', (0.4 + k * 1.4).toFixed(3));
     }
 
     damage() {

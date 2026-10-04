@@ -356,32 +356,71 @@ html, body {
 #crosshair.target { border-color: #ff5b5b; transform: scale(0.8); }
 #crosshair.target::after { background: #ff5b5b; }
 #crosshair.hot { border-color: #ff9a3d; }
+/* Hit marker: your shot landed (hud.js animates it). White = hit, gold + star = headshot,
+   red + ring = knocked out, gold ring = Captain's shield, grey ring = bounced off armor. */
 #hitmarker {
     position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 40px;
+    height: 40px;
+    margin: -20px 0 0 -20px;
+    opacity: 0;
+    --c: #ffffff;
+    --ring: 1;
+    filter: drop-shadow(0 0 1.2px #2a1424) drop-shadow(0 0 1.2px #2a1424) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+#hitmarker i { position: absolute; display: block; }
+#hitmarker .hm-x { inset: 0; }
+#hitmarker .hm-x::before, #hitmarker .hm-x::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    margin-left: -2px;
+    border-radius: 2px;
+    background: linear-gradient(var(--c) 0 33%, transparent 33% 67%, var(--c) 67%);
+    transform: rotate(45deg);
+}
+#hitmarker .hm-x::after { transform: rotate(-45deg); }
+#hitmarker .hm-ring {
     left: 50%;
     top: 50%;
     width: 34px;
     height: 34px;
     margin: -17px 0 0 -17px;
+    border-radius: 50%;
+    border: 3px solid var(--c);
     opacity: 0;
+    transform: scale(var(--ring));
 }
-#hitmarker::before, #hitmarker::after {
-    content: '';
-    position: absolute;
+#hitmarker .hm-star {
+    display: none;
     left: 50%;
-    top: 0;
-    width: 3px;
-    height: 100%;
-    margin-left: -1.5px;
-    background: linear-gradient(#fff 0 30%, transparent 30% 70%, #fff 70%);
-    transform: rotate(45deg);
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    background: #ffd23a;
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
 }
-#hitmarker::after { transform: rotate(-45deg); }
-#hitmarker.show { animation: hitmark 0.22s; }
-#hitmarker.kill::before, #hitmarker.kill::after {
-    background: linear-gradient(#ffd166 0 30%, transparent 30% 70%, #ffd166 70%);
+#hitmarker.hm-head { --c: #ffd166; width: 48px; height: 48px; margin: -24px 0 0 -24px; }
+#hitmarker.hm-head .hm-star { display: block; }
+#hitmarker.hm-kill { --c: #ff5b4a; }
+#hitmarker.hm-kill .hm-ring { opacity: 0.85; }
+#hitmarker.hm-head.hm-kill { --c: #ffb02e; }
+#hitmarker.hm-shield { --c: #ffd166; }
+#hitmarker.hm-armor { --c: #c9cfe0; }
+#hitmarker.hm-shield .hm-x, #hitmarker.hm-armor .hm-x { display: none; }
+#hitmarker.hm-shield .hm-ring, #hitmarker.hm-armor .hm-ring {
+    opacity: 0.95;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+    border-width: 2.5px;
 }
-@keyframes hitmark { 0% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0; transform: scale(1); } }
 
 /* Interaction prompt */
 #prompt {
