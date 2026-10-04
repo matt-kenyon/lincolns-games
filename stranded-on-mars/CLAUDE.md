@@ -83,7 +83,7 @@ Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.lev
   target (`hitSegment`, `isArmored`, `armorHit`, `hurt`, `blast`, `aimPoint`, `targetable`...).
 - **Boss** (`boss.js`): GLORBAX. States `hidden → intro → idle ⇄ slam / spit / laser`, `roar` (phase change at
   66% / 33% HP, summons helper waves), then `dying → dead`. Only the open eye takes damage. Its tentacles are
-  InstancedMeshes in world space, posed with Bezier curves. Balance knobs: `maxHp` (110 × difficulty),
+  one tube mesh in world space, bent along Bezier curves on the CPU every frame (the hit spheres are separate). Balance knobs: `maxHp` (110 × difficulty),
   `slamWindup()`, the laser `turn` speed, the spit count and the `toIdle()` cooldowns.
 - **Cutscenes.** `cinematics.js` runs shot lists and owns the space scene. It holds the Mars intro and the outro,
   which ends in level 2's capture. `cutscenes2.js` has the level 2 shots: the capture, GLORBAX's entrance and the
