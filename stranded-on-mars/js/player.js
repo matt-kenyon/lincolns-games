@@ -5,12 +5,25 @@
 import * as THREE from 'three';
 import { PLAYER } from './config.js';
 import { GeoBuilder, toonMaterial, addOutline } from './toon.js';
+import { SUIT, addGlove } from './models.js';
 import { clamp, lerp, damp, rand } from './util.js';
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _seg = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
+
+// The suit's glove (same one Lincoln wears in the cutscenes) plus a sleeve, with the glove's center
+// at `at` and the forearm running back along `dir`
+function addArm(b, at, dir, thumb) {
+    const d = dir.clone().normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(_up, d);
+    const sc = 0.8;
+    addGlove(b, new THREE.Matrix4().compose(at, q, new THREE.Vector3(sc, sc, sc)), thumb);
+    const sleeve = at.clone().addScaledVector(d, 0.37);
+    b.add(new THREE.CylinderGeometry(0.078, 0.095, 0.5, 14), SUIT.white, { matrix: new THREE.Matrix4().compose(sleeve, q, new THREE.Vector3(1, 1, 1)) });
+}
 
 // ------------------------------------------------------------
 // First-person view model (rendered in its own scene on top)
@@ -29,52 +42,56 @@ class ViewModel {
         this.gun = new THREE.Group();
         this.root.add(this.gun);
 
-        // Blaster
+        // Blaster: a little toy rocket in the LINCOLN-1's colors. Gun space: barrel along -Z,
+        // the barrel's axis at y = 0.02, the muzzle (where bolts start) at z = -0.47.
+        const AX = 0.02;
+        const along = (z) => ({ p: [0, AX, z] }); // a ring/disc centered on the barrel axis
         const b = new GeoBuilder();
-        b.add(new THREE.BoxGeometry(0.11, 0.13, 0.4), 0xf6f2ea, { p: [0, 0, 0] });
-        b.add(new THREE.BoxGeometry(0.115, 0.04, 0.3), 0xff7a2e, { p: [0, 0.035, -0.02] });
-        b.add(new THREE.CylinderGeometry(0.075, 0.075, 0.4, 14), 0xf6f2ea, { p: [0, 0.04, -0.05], r: [Math.PI / 2, 0, 0] });
-        b.add(new THREE.CylinderGeometry(0.034, 0.04, 0.22, 12), 0x8d97a3, { p: [0, 0.02, -0.32], r: [Math.PI / 2, 0, 0] });
-        b.add(new THREE.TorusGeometry(0.045, 0.014, 8, 16), 0xff7a2e, { p: [0, 0.02, -0.43] });
-        b.add(new THREE.BoxGeometry(0.07, 0.17, 0.09), 0x3a4250, { p: [0, -0.12, 0.08], r: [0.3, 0, 0] });
-        b.add(new THREE.BoxGeometry(0.02, 0.08, 0.14), 0xff7a2e, { p: [0.065, 0.09, 0.08] });
-        b.add(new THREE.BoxGeometry(0.02, 0.08, 0.14), 0xff7a2e, { p: [-0.065, 0.09, 0.08] });
-        b.add(new THREE.BoxGeometry(0.06, 0.03, 0.08), 0x3a4250, { p: [0, 0.135, 0.12] });
+        // chunky body with a tapered rocket tail (lathe profile: radius vs. distance toward the muzzle)
+        const prof = [[0, -0.15], [0.034, -0.147], [0.054, -0.137], [0.066, -0.123], [0.0665, -0.122], [0.08, -0.1], [0.092, -0.05],
+            [0.1, 0.02], [0.1, 0.08], [0.096, 0.13], [0.086, 0.18], [0.068, 0.218], [0.054, 0.236], [0, 0.236]].map(([r, y]) => new THREE.Vector2(r, y));
+        b.add(new THREE.LatheGeometry(prof, 24), [SUIT.white, (pos, i, c) => c.set(pos.getZ(i) > 0.1225 ? SUIT.orange : SUIT.white)], { p: [0, AX, 0], r: [-Math.PI / 2, 0, 0] });
+        // orange stripes, like the ship's
+        b.add(new THREE.TorusGeometry(0.095, 0.014, 8, 28), SUIT.orange, along(0.03));
+        b.add(new THREE.TorusGeometry(0.097, 0.014, 8, 28), SUIT.orange, along(-0.13));
+        // a slate cradle on top for the energy capsule (the glowing capsule itself is below)
+        b.add(new THREE.BoxGeometry(0.074, 0.034, 0.215), SUIT.slate, { p: [0, AX + 0.1, -0.02] });
+        // short barrel, collar and a big flared emitter
+        b.add(new THREE.CylinderGeometry(0.043, 0.047, 0.2, 16), SUIT.slate, { p: [0, AX, -0.32], r: [Math.PI / 2, 0, 0] });
+        b.add(new THREE.TorusGeometry(0.064, 0.018, 8, 22), SUIT.orange, along(-0.232));
+        b.add(new THREE.CylinderGeometry(0.073, 0.05, 0.065, 20, 1, true), SUIT.slate, { p: [0, AX, -0.424], r: [Math.PI / 2, 0, 0] });
+        b.add(new THREE.TorusGeometry(0.07, 0.015, 8, 24), SUIT.orange, along(-0.455));
+        // grip
+        b.add(new THREE.CapsuleGeometry(0.036, 0.1, 4, 12), SUIT.slate, { p: [0, -0.11, 0.085], r: [0.3, 0, 0] });
         const gunMesh = new THREE.Mesh(b.build(), mat);
         addOutline(gunMesh, 0x2a1424, 0.0016);
         this.gun.add(gunMesh);
 
-        // Energy coil = heat gauge (cyan -> yellow -> red)
+        // Energy = heat gauge (cyan -> yellow -> red): the glowing capsule on top, two coils on the
+        // barrel and the emitter lens all share this color
         this.coilMat = new THREE.MeshBasicMaterial({ color: 0x6ff0ff });
-        for (let i = 0; i < 3; i++) {
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.078, 0.016, 8, 18), this.coilMat);
-            ring.position.set(0, 0.04, 0.03 - i * 0.075);
-            this.gun.add(ring);
-        }
+        const e = new GeoBuilder();
+        e.add(new THREE.CapsuleGeometry(0.034, 0.17, 4, 16), 0xffffff, { p: [0, AX + 0.128, -0.02], r: [Math.PI / 2, 0, 0] });
+        for (const z of [-0.29, -0.355]) e.add(new THREE.TorusGeometry(0.05, 0.012, 6, 18), 0xffffff, along(z));
+        e.add(new THREE.CircleGeometry(0.05, 18), 0xffffff, { p: [0, AX, -0.45], r: [0, Math.PI, 0] });
+        const energy = new THREE.Mesh(e.build(), this.coilMat);
+        addOutline(energy, 0x2a1424, 0.0012);
+        this.gun.add(energy);
+        // the barrel tip: bolts, the muzzle flash (combat/effects) and overheat smoke start here
         this.muzzle = new THREE.Object3D();
         this.muzzle.position.set(0, 0.02, -0.47);
         this.gun.add(this.muzzle);
-        this.flash = new THREE.Mesh(
-            new THREE.PlaneGeometry(0.28, 0.28),
-            new THREE.MeshBasicMaterial({ color: 0x9ff8ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
-        );
-        this.flash.position.copy(this.muzzle.position);
-        this.gun.add(this.flash);
 
-        // Glove holding the grip
+        // Glove holding the grip (thumb wrapped round the left side)
         const h = new GeoBuilder();
-        h.add(new THREE.SphereGeometry(0.075, 12, 10), 0xf6f2ea, { p: [0, -0.12, 0.08], s: [1.1, 1.2, 1.25] });
-        h.add(new THREE.CylinderGeometry(0.07, 0.072, 0.07, 12), 0xff7a2e, { p: [0, -0.15, 0.17], r: [1.2, 0, 0] });
-        h.add(new THREE.CylinderGeometry(0.08, 0.1, 0.5, 12), 0xf6f2ea, { p: [0.02, -0.25, 0.4], r: [1.15, 0, 0] });
+        addArm(h, new THREE.Vector3(0, -0.138, 0.07), new THREE.Vector3(0.05, -0.38, 0.92), -1);
         const hand = new THREE.Mesh(h.build(), mat);
         addOutline(hand, 0x2a1424, 0.0016);
         this.gun.add(hand);
 
         // Left hand (appears when throwing a grenade)
         const lh = new GeoBuilder();
-        lh.add(new THREE.SphereGeometry(0.075, 12, 10), 0xf6f2ea, { s: [1.1, 1.0, 1.2] });
-        lh.add(new THREE.CylinderGeometry(0.07, 0.072, 0.07, 12), 0xff7a2e, { p: [0, -0.02, 0.09], r: [1.3, 0, 0] });
-        lh.add(new THREE.CylinderGeometry(0.08, 0.1, 0.5, 12), 0xf6f2ea, { p: [0, -0.1, 0.33], r: [1.3, 0, 0] });
+        addArm(lh, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.25, 0.97), 1);
         this.leftHand = new THREE.Mesh(lh.build(), mat);
         addOutline(this.leftHand, 0x2a1424, 0.0016);
         this.leftHand.visible = false;
@@ -94,8 +111,6 @@ class ViewModel {
 
     recoil() {
         this.kick = 1;
-        this.flash.material.opacity = 1;
-        this.flash.rotation.z = Math.random() * Math.PI;
     }
 
     throwAnim() {
@@ -109,7 +124,6 @@ class ViewModel {
         this.camera.aspect = p.aspect;
         this.camera.updateProjectionMatrix();
         this.kick = Math.max(0, this.kick - dt * 9);
-        this.flash.material.opacity = Math.max(0, this.flash.material.opacity - dt * 22);
         this.swayX = damp(this.swayX, clamp(-p.lookDX * 0.0009, -0.05, 0.05), 10, dt);
         this.swayY = damp(this.swayY, clamp(p.lookDY * 0.0009, -0.05, 0.05), 10, dt);
         const bx = Math.cos(p.bob) * 0.012 * p.bobAmt;
