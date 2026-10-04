@@ -339,7 +339,7 @@ export class ShipLevel {
         if (fighting) this.combatT = 5;
         else this.combatT -= dt;
         let music = this.combatT > 0 ? 'shipCombat' : 'ship';
-        if (this.boss.active) music = 'boss2';
+        if (this.boss.active) music = this.boss.phase >= 3 ? 'boss2Rage' : this.boss.phase === 2 ? 'boss2Mad' : 'boss2';
         else if (this.bossDown) music = 'shipCombat';
         g.audio.setMusic(music);
 

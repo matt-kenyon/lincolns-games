@@ -110,25 +110,55 @@ export const MUSIC = {
     // Woodland Music Vol 1 by JC Sounds (CC BY 4.0), remixed into game loops by dev/build-music.py
     'woodland-level': { loop: 144, pad: 0.5, gain: 0.8, stems: { base: 'woodland-level-base', drums: 'woodland-level-drums' } },
     'woodland-boss': { loop: 100.64517, pad: 0.5, gain: 0.32, stems: { main: 'woodland-boss' } },
+    // Our own songs, played with CC0 instrument samples (VSCO 2 CE and VCSL by Versilian Studios) plus a
+    // GeneralUser GS celesta. The scores and render scripts are in dev/music/.
+    'home-mars': { loop: 64, pad: 0.5, gain: 0.87, stems: { base: 'home-mars-base', perc: 'home-mars-perc', drive: 'home-mars-drive' } },
+    'home-captain': { loop: 54.857143, pad: 0.5, gain: 0.76, stems: { base: 'home-captain-base' } },
+    'home-title': { loop: 45.714286, pad: 0.5, gain: 0.77, stems: { base: 'home-title-base' } },
+    'home-intro': { loop: 32, pad: 0.5, gain: 0.86, stems: { base: 'home-intro-base' } },
+    'home-ship': { loop: 60, pad: 0.5, gain: 0.77, stems: { base: 'home-ship-base', perc: 'home-ship-perc', drive: 'home-ship-drive' } },
+    'home-boss2': { intro: 5.714286, loop: 45.714286, gain: 0.76, stems: { base: 'home-boss2-base', rage: 'home-boss2-rage' } },
+    'home-theme': { once: true, gain: 0.76, stems: { base: 'home-theme-base' } },
 };
 
 // A music set says, for each music mode the game asks for, which song plays and how loud each of
 // its layers is (layers not listed fade out). A mode the set doesn't list plays the classic synth music.
 // Mars modes: title, intro, explore, combat, boss (the Alien Captain).
-// Mothership modes: ship, shipCombat (wave fights), boss2 (GLORBAX), theme (the ending).
+// Mothership modes: ship, shipCombat (wave fights), boss2 (GLORBAX), boss2Mad (after its first roar),
+// boss2Rage (the last third, when it turns red), theme (the ending).
+const OURS = {
+    title: { song: 'home-title', layers: { base: 1 } },
+    intro: { song: 'home-intro', layers: { base: 1 } },
+    explore: { song: 'home-mars', layers: { base: 1 } },
+    combat: { song: 'home-mars', layers: { base: 1, perc: 1, drive: 1 } },
+    boss: { song: 'home-captain', layers: { base: 1 } },
+    ship: { song: 'home-ship', layers: { base: 1 } },
+    shipCombat: { song: 'home-ship', layers: { base: 1, perc: 1, drive: 1 } },
+    boss2: { song: 'home-boss2', layers: { base: 1 } },
+    boss2Mad: { song: 'home-boss2', layers: { base: 1, rage: 0.6 } },
+    boss2Rage: { song: 'home-boss2', layers: { base: 1, rage: 1 } },
+    theme: { song: 'home-theme', layers: { base: 1 } },
+};
 export const MUSIC_SETS = {
-    // Woodland on Mars; the mothership keeps the classic music until it has songs of its own
-    woodland: {
+    // Woodland on Mars, our own songs everywhere else
+    mix: {
+        ...OURS,
         title: { song: 'woodland-level', layers: { base: 0.8 } },
         explore: { song: 'woodland-level', layers: { base: 1 } },
         combat: { song: 'woodland-level', layers: { base: 1, drums: 1 } },
         boss: { song: 'woodland-boss', layers: { main: 1 } },
     },
+    // our own songs everywhere
+    ours: OURS,
 };
 
-export const MUSIC_SET = 'woodland';   // the set players hear (with ?debug, M switches sets in game)
+export const MUSIC_SET = 'mix';   // the set players hear (with ?debug, M switches sets in game)
 
+// The songs each stage needs, loaded when the stage starts (and the other stage's songs freed)
 export const STAGE_MODES = {
     mars: ['title', 'intro', 'explore', 'combat', 'boss'],
-    ship: ['ship', 'shipCombat', 'boss2', 'theme'],
+    ship: ['intro', 'ship', 'shipCombat', 'boss2', 'boss2Mad', 'boss2Rage', 'theme'],
 };
+
+// The classic synth music has fewer modes: these play as the mode on the right
+export const CLASSIC_MODE = { shipCombat: 'combat', boss2Mad: 'boss2', boss2Rage: 'boss2' };

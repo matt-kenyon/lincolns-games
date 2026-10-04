@@ -3,3 +3,5 @@ out/
 package-lock.json
 logs/
 audio-src/
+music/cache/
+music/out/

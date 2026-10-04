@@ -239,6 +239,7 @@ class Game {
         this.hud.clearCompassMarkers();
         this.player.vm.setLighting(0xc2acff, 0x3a2456, 2.0);
         this.audio.setAmbience('ship');
+        this.audio.enterStage('ship');
     }
 
     resize() {
@@ -749,7 +750,7 @@ class Game {
         if (i.wasPressed('KeyM')) {
             if (i.keys.has('ShiftLeft') || i.keys.has('ShiftRight')) {
                 // hold one music mode, to hear a song's layers without fighting
-                const list = this.stage.key === 'ship' ? [null, 'ship', 'shipCombat', 'boss2'] : [null, 'explore', 'combat', 'boss'];
+                const list = this.stage.key === 'ship' ? [null, 'ship', 'shipCombat', 'boss2', 'boss2Rage'] : [null, 'explore', 'combat', 'boss'];
                 const next = list[(list.indexOf(this.audio.forceMode) + 1) % list.length];
                 this.audio.forceMusicMode(next);
                 this.hud.toast('Music mode: ' + (next || 'automatic'));

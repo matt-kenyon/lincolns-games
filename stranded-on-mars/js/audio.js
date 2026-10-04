@@ -9,7 +9,7 @@
 // ============================================================
 
 import { SampleBank, StemMusic } from './samples.js';
-import { SFX_FILES, MUSIC_SETS, MUSIC_SET, STAGE_MODES } from './sounds.js';
+import { SFX_FILES, MUSIC_SETS, MUSIC_SET, STAGE_MODES, CLASSIC_MODE } from './sounds.js';
 
 const NOTE = (n) => 440 * Math.pow(2, (n - 69) / 12); // MIDI -> Hz
 
@@ -153,7 +153,7 @@ export class AudioEngine {
         const set = this.classicMusic ? null : MUSIC_SETS[this.musicSet];
         const def = (set && set[mode]) || null;
         this.stems.play(def);
-        this.music.setMode(def || mode === 'none' ? 'none' : mode === 'shipCombat' ? 'combat' : mode);
+        this.music.setMode(def || mode === 'none' ? 'none' : CLASSIC_MODE[mode] || mode);
     }
 
     // Recorded wind and hum loops replace the synthesized ones once they've loaded
@@ -191,6 +191,15 @@ export class AudioEngine {
     preloadStage(key) {
         this.stageKey = key;
         if (this.stems) this.stems.preload(this.stageSongs(key));
+    }
+
+    // Entering a stage: load its songs and free the other stage's (decoded music takes a lot of memory)
+    enterStage(key) {
+        this.preloadStage(key);
+        if (!this.stems) return;
+        this.stems.release(this.stageSongs(key));
+        // the song that was playing is still fading out: free it once it has stopped
+        setTimeout(() => this.stems.release(this.stageSongs(this.stageKey)), 4000);
     }
 
     // Debug (M): switch between the music sets and the classic synth music. Returns the new name.
