@@ -8,31 +8,46 @@
 // ============================================================
 
 import * as THREE from 'three';
-import { GeoBuilder, toonMaterial, outlineMaterial, addOutline, glowSprite } from './toon.js';
+import { GeoBuilder, toonMaterial, addOutline, glowSprite } from './toon.js';
 import { BOSS, HOLES } from './shiplayout.js';
-import { clamp, lerp, damp, dampAngle, rand, easeInOut, easeIn, easeOut, wrapAngle } from './util.js';
+import { clamp, lerp, damp, dampAngle, rand, easeInOut, easeIn, easeOut, wrapAngle, smoothstep } from './util.js';
 
 const COL = {
     skin: 0x5b45c8, belly: 0x9f8cf2, back: 0x35278a, gold: 0xf2c14e, fang: 0xfffaf2,
     mouth: 0x2a0f2a, sucker: 0xffa6cf, eye: 0xfff6dc, iris: 0xffc23a, pupil: 0x140a1a,
+    ink: 0x1b1030, lid: 0x4434a8, spot: 0x9ffcff, spotRim: 0x2fb4d6,
 };
 const N_TENT = 6;
-const N_SEG = 22;
+const N_SEG = 22;          // invisible hit spheres along each tentacle (they block shots)
+const T_RINGS = 40;        // the tentacle skin: rings along each arm...
+const T_SIDES = 12;        // ...and points around each ring
+const T_COLS = T_SIDES + 1;
+const T_VERTS = T_RINGS * T_COLS;
+const T_REST_LEN = 14;     // about how long an arm is (spaces the suckers out)
+const CURL_FROM = Math.round(0.6 * (T_RINGS - 1)); // the tip curls from here on
 const PIT = HOLES[1];
 const RING_IN = PIT.r + 1.5;
 const RING_OUT = 26.6;
 const BODY_Y = 3.8;
-const EYE_R = 1.35;
+const EYE_R = 1.55;
 const EYE_LOCAL = new THREE.Vector3(0, 1.25, 3.45);
 const MOUTH_LOCAL = new THREE.Vector3(0, -1.15, 3.55);
+const BROW = new THREE.Vector3(0, EYE_LOCAL.y + EYE_R + 0.35, 2.75); // where the brow bends
+const FIN = new THREE.Vector3(3.75, 1.4, -0.9);                       // where the ear fins hinge
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
-const _m = new THREE.Matrix4();
-const _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3();
+const _c = new THREE.Color();
 const _up = new THREE.Vector3(0, 1, 0);
 const _base = new THREE.Vector3();
+const _side = new THREE.Vector3(), _axis = new THREE.Vector3(), _prev = new THREE.Vector3(), _seg = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _mx = new THREE.Matrix4();
+const _sc = new THREE.Vector3();
+const _zAxis = new THREE.Vector3(0, 0, 1);
+const T_COS = Array.from({ length: T_COLS }, (_, j) => Math.cos((j / T_SIDES) * Math.PI * 2));
+const T_SIN = Array.from({ length: T_COLS }, (_, j) => Math.sin((j / T_SIDES) * Math.PI * 2));
 
 function bez(p0, p1, p2, p3, u, out) {
     const a = (1 - u) ** 3, b = 3 * u * (1 - u) ** 2, c = 3 * u * u * (1 - u), d = u ** 3;
@@ -87,69 +102,346 @@ function segSegDist(p0, p1, q0, q1) {
 // ------------------------------------------------------------
 // The model
 // ------------------------------------------------------------
-function buildModel() {
-    const sph = (w = 24, h = 16) => new THREE.SphereGeometry(1, w, h);
+// Shader add-ons for GLORBAX's toon materials (one program each, no extra lights):
+//  GLX_DEFORM  the body squishes: the mantle breathes, the cheeks puff, the brow bends,
+//              the ear fins flap and the whole jelly wobbles when the eye gets hit
+//  GLX_RAGE    furious: the purple skin turns red (gold, teeth and spots keep their colors)
+//  GLX_TENT    tentacle skin: darker back, light belly and two rows of suckers
+//  GLX_EYE     the eye: iris, a pupil that narrows to a slit, a red-hot glow and dizzy spirals
+const f3 = (n) => n.toFixed(3);
+const GLX_VERT = /* glsl */`
+#ifdef GLX_DEFORM
+attribute float gpart;
+uniform float uBreath;
+uniform float uJig;
+uniform float uJigT;
+uniform float uPuff;
+uniform float uFlap;
+uniform float uBrowTilt;
+uniform float uBrowLift;
+vec3 glxRotZ(vec3 q, float a) {
+    float c = cos(a), s = sin(a);
+    return vec3(q.x * c - q.y * s, q.x * s + q.y * c, q.z);
+}
+vec3 glxDeform(vec3 p) {
+    if (gpart > 0.5 && gpart < 1.5) {
+        vec3 piv = vec3(0.0, ${f3(BROW.y)}, ${f3(BROW.z)});
+        p = piv + glxRotZ(p - piv, uBrowTilt * clamp(p.x / 1.3, -1.0, 1.0)) + vec3(0.0, uBrowLift, 0.0);
+    } else if (gpart > 1.5) {
+        float sx = sign(p.x);
+        vec3 piv = vec3(sx * ${f3(FIN.x)}, ${f3(FIN.y)}, ${f3(FIN.z)});
+        p = piv + glxRotZ(p - piv, uFlap * sx);
+    }
+    float mantle = smoothstep(0.5, 4.5, p.y - p.z * 0.45);
+    p += (p - vec3(0.0, 0.8, -1.2)) * (uBreath * 0.07 * mantle);
+    vec3 m = (p - vec3(0.0, ${f3(MOUTH_LOCAL.y + 0.3)}, ${f3(MOUTH_LOCAL.z - 0.9)})) * vec3(0.42, 0.85, 0.75);
+    p += normalize(p - vec3(0.0, 0.3, 0.0)) * (uPuff * 0.55 * exp(-dot(m, m)) * smoothstep(0.5, 1.7, abs(p.x)));
+    float r = length(p - vec3(0.0, ${f3(EYE_LOCAL.y)}, ${f3(EYE_LOCAL.z)}));
+    p += (p - vec3(0.0, 0.6, 0.0)) * (sin(r * 1.8 - uJigT * 22.0) * uJig * 0.05 * smoothstep(0.8, 2.8, r));
+    return p;
+}
+#endif
+#ifdef GLX_TENT
+attribute vec3 tuv;
+varying vec3 vTuv;
+#endif
+#ifdef GLX_EYE
+varying vec3 vEyeP;
+#endif
+`;
+const GLX_BEGIN = /* glsl */`
+#ifdef GLX_DEFORM
+transformed = glxDeform(transformed);
+#endif
+#ifdef GLX_TENT
+vTuv = tuv;
+#endif
+#ifdef GLX_EYE
+vEyeP = position;
+#endif
+`;
+const GLX_FRAG = /* glsl */`
+#ifdef GLX_RAGE
+uniform float uRage;
+uniform vec3 uRageSpot;
+vec3 glxHue(vec3 c, float a) {
+    const vec3 k = vec3(0.57735);
+    float ca = cos(a);
+    return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca);
+}
+vec3 glxRage(vec3 c) {
+    float w = smoothstep(0.04, 0.16, c.b - c.g) * uRage;
+    vec3 r = max(glxHue(c, 2.05), vec3(0.0));
+    r = max(mix(vec3(dot(r, vec3(0.3, 0.59, 0.11))), r, 1.45), vec3(0.0)) * vec3(1.0, 0.8, 0.8);
+    return mix(c, r, w);
+}
+#endif
+#ifdef GLX_TENT
+varying vec3 vTuv;
+uniform vec3 uTTop;
+uniform vec3 uTSkin;
+uniform vec3 uTBelly;
+uniform vec3 uTSuck;
+uniform vec3 uTSuckRim;
+#endif
+#ifdef GLX_EYE
+varying vec3 vEyeP;
+uniform vec4 uEyeA;
+uniform vec3 uSclera;
+uniform vec3 uIrisIn;
+uniform vec3 uIrisOut;
+uniform vec3 uIrisRing;
+uniform vec3 uPupilCol;
+uniform vec3 uEyeGlow;
+#endif
+`;
+const GLX_COLOR = /* glsl */`
+#ifdef GLX_TENT
+{
+    float side = abs(vTuv.y - 0.5) * 2.0;
+    float fw = fwidth(side) * 1.5;
+    vec3 c = mix(uTBelly, uTSkin, smoothstep(0.36 - fw, 0.36 + fw, side));
+    c = mix(c, uTTop, smoothstep(0.8 - fw, 0.8 + fw, side));
+    #ifdef GLX_RAGE
+    c = glxRage(c);
+    #endif
+    float row = vTuv.y < 0.5 ? 0.0 : 0.5;
+    vec2 sq = vec2((fract(vTuv.x + row) - 0.5) / 0.36, (abs(vTuv.y - 0.5) - 0.062) / 0.028);
+    float sd = length(sq);
+    float sfw = length(vec2(fwidth(vTuv.x) / 0.36, fwidth(vTuv.y) / 0.028)) * 0.8;
+    float fade = smoothstep(0.05, 0.1, vTuv.z) * (1.0 - smoothstep(0.88, 0.94, vTuv.z));
+    float disc = (1.0 - smoothstep(1.0 - sfw, 1.0 + sfw, sd)) * fade;
+    vec3 sc = mix(uTSuck, uTSuckRim, smoothstep(0.66 - sfw, 0.66 + sfw, sd));
+    sc = mix(sc, uTSuckRim * 0.8, 1.0 - smoothstep(0.26 - sfw, 0.26 + sfw, sd));
+    diffuseColor.rgb = mix(c, sc, disc);
+}
+#elif defined(GLX_RAGE)
+diffuseColor.rgb = glxRage(diffuseColor.rgb);
+#ifdef USE_GLOW_ATTR
+diffuseColor.rgb = mix(diffuseColor.rgb, uRageSpot, step(0.5, vGlow) * uRage);
+#endif
+#endif
+#ifdef GLX_EYE
+{
+    vec3 en = normalize(vEyeP);
+    vec2 q = en.xy / (1.0 + max(en.z, -0.5));
+    float qa = length(q);
+    float afw = fwidth(qa) * 1.2;
+    float irisR = uEyeA.x;
+    float iris = 1.0 - smoothstep(irisR - afw, irisR + afw, qa);
+    float ang = atan(q.y, q.x);
+    vec3 ic = mix(uIrisIn, uIrisOut, smoothstep(irisR * 0.2, irisR, qa));
+    ic *= 0.86 + 0.14 * sin(ang * 13.0 + sin(ang * 4.0) * 1.7);
+    ic = mix(ic, uIrisRing, smoothstep(irisR * 0.84 - afw, irisR * 0.84 + afw, qa));
+    float pd = length(vec2(q.x / max(uEyeA.z, 0.05), q.y)) / uEyeA.y;
+    float pfw = fwidth(pd) * 1.2;
+    float pupil = 1.0 - smoothstep(1.0 - pfw, 1.0 + pfw, pd);
+    float spiral = step(0.5, fract(ang / 6.28318 + qa * 7.0 - uTime * 1.6)) * iris;
+    pupil = mix(pupil, spiral, uEyeA.w);
+    diffuseColor.rgb = mix(mix(uSclera, ic, iris), uPupilCol, pupil);
+    totalEmissiveRadiance += uEyeGlow * iris * (1.0 - pupil);
+}
+#endif
+`;
+
+// A toon material with GLORBAX's shader add-ons. U = the boss's live uniforms (shared by all its materials).
+function glxMaterial(opts, defs, U) {
+    const mat = toonMaterial({ ...opts, cache: false });
+    Object.assign(mat.defines, defs);
+    const base = mat.onBeforeCompile;
+    const key = 'glorbax:' + Object.keys(defs).sort().join(',');
+    mat.onBeforeCompile = function (shader, renderer) {
+        base.call(this, shader, renderer);
+        Object.assign(shader.uniforms, U);
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\n' + GLX_VERT)
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + GLX_BEGIN);
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', '#include <common>\n' + GLX_FRAG)
+            .replace('#include <color_fragment>', '#include <color_fragment>\n' + GLX_COLOR);
+    };
+    mat.customProgramCacheKey = () => key;
+    return mat;
+}
+
+// Ink outline for the squishy body (the same as toon.js's outline, but it squishes along)
+function glxOutline(U, color, thickness) {
+    const mat = new THREE.ShaderMaterial({
+        uniforms: THREE.UniformsUtils.merge([
+            THREE.UniformsLib.fog,
+            { uColor: { value: new THREE.Color(color) }, uThick: { value: thickness } },
+        ]),
+        defines: { GLX_DEFORM: '' },
+        vertexShader: /* glsl */`
+            #include <common>
+            #include <fog_pars_vertex>
+            uniform float uThick;
+            ${GLX_VERT}
+            void main() {
+                vec4 mvPosition = modelViewMatrix * vec4(glxDeform(position), 1.0);
+                vec3 vn = normalize(normalMatrix * normal);
+                float dist = clamp(-mvPosition.z, 1.5, 28.0);
+                mvPosition.xyz += vn * uThick * dist;
+                gl_Position = projectionMatrix * mvPosition;
+                #include <fog_vertex>
+            }`,
+        fragmentShader: /* glsl */`
+            #include <common>
+            #include <fog_pars_fragment>
+            uniform vec3 uColor;
+            void main() {
+                gl_FragColor = vec4(uColor, 1.0);
+                #include <colorspace_fragment>
+                #include <fog_fragment>
+            }`,
+        side: THREE.BackSide,
+        fog: true,
+    });
+    Object.assign(mat.uniforms, U);
+    return mat;
+}
+
+// ------------------------------------------------------------
+// The head: a ball pushed into a squishy octopus mantle that leans back
+// ------------------------------------------------------------
+function headPoint(x, y, z, out) {
+    const up = Math.max(0, y), low = Math.max(0, -y);
+    const pinch = 1 - 0.12 * up * up;
+    const flare = 1 + 0.14 * Math.sin(Math.min(1, low / 0.8) * Math.PI) * (1 - smoothstep(0, 0.7, z));
+    const s = pinch * flare;
+    return out.set(x * s * 4.2, y * (y > 0 ? 1.12 : 0.92) * 4.4, (z * s - 0.34 * up * up) * 4.0);
+}
+
+const _hd = new THREE.Vector3(), _h1 = new THREE.Vector3(), _h2 = new THREE.Vector3(), _ht1 = new THREE.Vector3(), _ht2 = new THREE.Vector3();
+// The surface point and normal for a direction (normal measured from two tiny steps across the surface)
+function headSurface(d, outP, outN) {
+    _hd.copy(d).normalize();
+    headPoint(_hd.x, _hd.y, _hd.z, outP);
+    _ht1.crossVectors(_up, _hd);
+    if (_ht1.lengthSq() < 1e-6) _ht1.set(1, 0, 0);
+    _ht1.normalize();
+    _ht2.crossVectors(_hd, _ht1);
+    _h1.copy(_hd).addScaledVector(_ht1, 0.01).normalize();
+    headPoint(_h1.x, _h1.y, _h1.z, _h1);
+    _h2.copy(_hd).addScaledVector(_ht2, 0.01).normalize();
+    headPoint(_h2.x, _h2.y, _h2.z, _h2);
+    outN.crossVectors(_h1.sub(outP), _h2.sub(outP)).normalize();
+    if (outN.dot(_hd) < 0) outN.negate();
+}
+
+function headGeometry() {
+    const g = new THREE.SphereGeometry(1, 56, 40);
+    const pos = g.attributes.position, nor = g.attributes.normal;
+    const d = new THREE.Vector3(), p = new THREE.Vector3(), n = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+        d.fromBufferAttribute(pos, i);
+        headSurface(d, p, n);
+        pos.setXYZ(i, p.x, p.y, p.z);
+        nor.setXYZ(i, n.x, n.y, n.z);
+    }
+    return g;
+}
+
+function buildBody(U) {
     const b = new GeoBuilder();
-    // big squishy head/body
-    b.add(sph(36, 26), [COL.skin, (p, i, c) => {
-        const x = p.getX(i) / 4.2, y = p.getY(i) / 4.6, z = p.getZ(i) / 4.0;
-        if (z > 0.55 && y < 0.15) c.set(COL.belly);
-        else if (z < -0.35 || y > 0.72) c.set(COL.back);
+    const parts = [];
+    const add = (part, ...args) => { b.add(...args); parts.push(part); };
+    const sph = (w = 20, h = 12) => new THREE.SphereGeometry(1, w, h);
+    const P = new THREE.Vector3(), N = new THREE.Vector3(), D = new THREE.Vector3();
+    // the big squishy head: a lighter face, a darker mantle cap
+    add(0, headGeometry(), [COL.skin, (p, i, c) => {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+        if (z > 2.3 && y < 0.4 && Math.abs(x) < 3.1) c.set(COL.belly);
+        else if (y > 3.0 - z * 0.3 || z < -2.3) c.set(COL.back);
         else c.set(COL.skin);
-        if (Math.sin(x * 9.0 + y * 3.0) * Math.sin(y * 8.0 - z * 5.0) > 0.82 && z < 0.4) c.set(0x8a6ff0);
-    }], { s: [4.2, 4.6, 4.0] });
-    // eye socket + armored gold brow
-    b.add(new THREE.TorusGeometry(1.5, 0.28, 10, 32), COL.back, { p: [EYE_LOCAL.x, EYE_LOCAL.y, EYE_LOCAL.z - 0.25] });
-    b.add(new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), COL.gold, { p: [0, EYE_LOCAL.y + 1.15, EYE_LOCAL.z - 0.55], s: [1.9, 0.55, 0.9], r: [0.45, 0, 0] });
-    // crown of gold horns
-    for (let k = 0; k < 5; k++) {
-        const a = -0.9 + (k / 4) * 1.8;
-        const x = Math.sin(a) * 2.2, z = Math.cos(a) * 0.4 - 0.6;
-        b.add(new THREE.ConeGeometry(0.42, 2.4 - Math.abs(a) * 0.6, 10), COL.gold, { p: [x, 4.2 - Math.abs(a) * 0.5, z], r: [-0.5, 0, -a * 0.5] });
-    }
-    // fins like ears
+    }], {});
+    // a puffy socket the eye sits in
+    add(0, new THREE.TorusGeometry(EYE_R + 0.16, 0.26, 12, 40), COL.skin, { p: [EYE_LOCAL.x, EYE_LOCAL.y, EYE_LOCAL.z - 0.5] });
+    // the gold armored brow (part 1: it bends into an angry V)
+    add(1, new THREE.TorusGeometry(EYE_R + 0.48, 0.3, 10, 28, 2.2), COL.gold,
+        { p: [0, EYE_LOCAL.y, EYE_LOCAL.z - 0.02], r: [-0.4, 0, Math.PI / 2 - 1.1], s: [1, 1, 0.75] });
+    // glowing bioluminescent spots on the mantle
+    const spot = (dx, dy, dz, size) => {
+        headSurface(D.set(dx, dy, dz), P, N);
+        _q.setFromUnitVectors(_zAxis, N);
+        _mx.compose(P, _q, _sc.set(size, size, size * 0.4));
+        add(0, sph(14, 8), COL.spotRim, { matrix: _mx.clone() }, 0.9);
+        _mx.compose(P.addScaledVector(N, size * 0.14), _q, _sc.set(size * 0.62, size * 0.62, size * 0.3));
+        add(0, sph(12, 6), COL.spot, { matrix: _mx.clone() }, 1.6);
+    };
     for (const sx of [-1, 1]) {
-        b.add(sph(18, 10), COL.back, { p: [sx * 4.1, 1.4, -0.3], s: [0.35, 1.8, 1.2], r: [0, 0, sx * 0.4] });
-        b.add(sph(12, 8), 0x6ff0ff, { p: [sx * 4.35, 2.4, -0.2], s: [0.25, 0.25, 0.25] }, 1.4);
+        spot(sx * 0.55, 0.62, -0.05, 0.42);
+        spot(sx * 0.8, 0.3, -0.2, 0.32);
+        spot(sx * 0.42, 0.82, -0.35, 0.3);
+        spot(sx * 0.9, 0.0, -0.3, 0.24);
+        spot(sx * 0.62, 0.45, -0.62, 0.34);
+        spot(sx * 0.3, 0.5, -0.82, 0.26);
+        spot(sx * 0.75, 0.5, 0.42, 0.22);
+        spot(sx * 0.8, -0.05, 0.55, 0.17);
     }
-    // upper fangs
-    for (const x of [-0.95, -0.35, 0.35, 0.95]) {
-        b.add(new THREE.ConeGeometry(0.16, 0.7, 8), COL.fang, { p: [x, MOUTH_LOCAL.y + 0.15, MOUTH_LOCAL.z + 0.05], r: [Math.PI + 0.1, 0, 0] });
+    spot(0, 0.95, -0.3, 0.36);
+    spot(0, 0.7, -0.7, 0.32);
+    // a little crown of gold horns on top
+    for (let k = -1; k <= 1; k++) {
+        headSurface(D.set(k * 0.3, 0.95, 0.12), P, N);
+        add(0, new THREE.ConeGeometry(0.34, 1.5 - Math.abs(k) * 0.35, 10), COL.gold, { p: [P.x, P.y + 0.45, P.z], r: [-0.45, 0, -k * 0.5] });
     }
-    const body = new THREE.Mesh(b.build(), toonMaterial({ vertexColors: true, glow: true, rim: 0.65, rimColor: 0xd8c8ff, cache: false }));
+    // floppy ear fins (part 2: they flap)
+    for (const sx of [-1, 1]) {
+        add(2, sph(22, 14), [COL.back, (p, i, c) => c.set(p.getZ(i) > -0.45 ? COL.skin : COL.back)],
+            { p: [sx * 4.4, 2.2, -0.9], s: [0.3, 1.75, 1.35], r: [0.2, sx * 0.75, sx * -0.75] });
+    }
+    // lips and fangs
+    add(0, new THREE.TorusGeometry(1.35, 0.2, 8, 24, Math.PI), COL.belly,
+        { p: [MOUTH_LOCAL.x, MOUTH_LOCAL.y - 0.25, MOUTH_LOCAL.z + 0.05], s: [1.12, 0.5, 1], r: [-0.15, 0, 0] });
+    for (const [x, s] of [[-0.9, 0.85], [-0.35, 1.15], [0.35, 1.15], [0.9, 0.85]]) {
+        add(0, new THREE.ConeGeometry(0.17 * s, 0.7 * s, 8), COL.fang, { p: [x, MOUTH_LOCAL.y + 0.12, MOUTH_LOCAL.z + 0.12], r: [Math.PI + 0.12, 0, 0] });
+    }
+    // which part each vertex belongs to (for the squish shader)
+    const counts = b.chunks.map((c) => c.g.attributes.position.count);
+    const gp = new Float32Array(counts.reduce((a, c) => a + c, 0));
+    let o = 0;
+    counts.forEach((c, i) => { gp.fill(parts[i], o, o + c); o += c; });
+    const geo = b.build();
+    geo.setAttribute('gpart', new THREE.BufferAttribute(gp, 1));
+    const mat = glxMaterial({ vertexColors: true, glow: true, rim: 0.65, rimColor: 0xd8c8ff }, { GLX_DEFORM: '', GLX_RAGE: '' }, U);
+    const body = new THREE.Mesh(geo, mat);
     body.castShadow = true;
-    addOutline(body, 0x1b1030, 0.0022);
+    const line = new THREE.Mesh(geo, glxOutline(U, COL.ink, 0.0022));
+    line.raycast = () => {};
+    body.add(line);
     return body;
 }
 
-function buildEye() {
+function buildEye(U) {
     const g = new THREE.Group();
-    const mat = toonMaterial({ vertexColors: true, glow: true, rim: 0.4, rimColor: 0xffffff, cache: false });
-    const b = new GeoBuilder();
-    b.add(new THREE.SphereGeometry(EYE_R, 28, 20), COL.eye, {});
-    const iris = new THREE.SphereGeometry(EYE_R + 0.02, 28, 10, 0, Math.PI * 2, 0, 0.62);
-    iris.rotateX(Math.PI / 2);
-    b.add(iris, [COL.iris, (p, i, c) => c.set(p.getZ(i) > EYE_R * 0.93 ? 0xffe27a : COL.iris)], {});
-    const pupil = new THREE.SphereGeometry(EYE_R + 0.04, 20, 8, 0, Math.PI * 2, 0, 0.5);
-    pupil.rotateX(Math.PI / 2);
-    pupil.scale(0.3, 1, 1);
-    b.add(pupil, COL.pupil, {});
-    const eye = new THREE.Mesh(b.build(), mat);
-    addOutline(eye, 0x1b1030, 0.002);
+    const mat = glxMaterial({ color: 0xffffff, rim: 0.4, rimColor: 0xffffff }, { GLX_EYE: '' }, U);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(EYE_R, 44, 30), mat);
+    addOutline(eye, COL.ink, 0.002);
     g.add(eye);
-    // a shiny cartoon highlight (hidden when the eye shuts)
-    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.19, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    shine.position.set(-0.42, 0.46, EYE_R - 0.08);
+    // shiny cartoon highlights (hidden when the eye shuts)
+    const sb = new GeoBuilder();
+    const onEye = (x, y) => _v.set(x, y, 1).normalize().multiplyScalar(EYE_R).toArray();
+    sb.add(new THREE.SphereGeometry(0.22, 12, 8), 0xffffff, { p: onEye(-0.38, 0.36), s: [1, 1, 0.5] });
+    sb.add(new THREE.SphereGeometry(0.1, 10, 6), 0xffffff, { p: onEye(-0.12, 0.5), s: [1, 1, 0.5] });
+    const shine = new THREE.Mesh(sb.build(), new THREE.MeshBasicMaterial({ vertexColors: true }));
     g.add(shine);
-    // eyelids (half shells that swing shut)
-    const lidMat = toonMaterial({ color: COL.skin, rim: 0.5, rimColor: 0xd8c8ff, cache: false, side: THREE.DoubleSide });
-    const upper = new THREE.Mesh(new THREE.SphereGeometry(EYE_R + 0.12, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), lidMat);
-    const lower = new THREE.Mesh(new THREE.SphereGeometry(EYE_R + 0.1, 28, 14, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), lidMat);
+    // eyelids: half shells with a thick rim and a dark lash line, that swing shut
+    const lidMat = glxMaterial({ vertexColors: true, rim: 0.5, rimColor: 0xd8c8ff, side: THREE.DoubleSide }, { GLX_RAGE: '' }, U);
+    const lid = (upper) => {
+        const lb = new GeoBuilder();
+        const r = EYE_R + 0.1;
+        lb.add(new THREE.SphereGeometry(r, 32, 12, 0, Math.PI * 2, upper ? 0 : Math.PI / 2, Math.PI / 2), COL.skin, {});
+        lb.add(new THREE.TorusGeometry(r + 0.02, 0.13, 8, 44), COL.lid, { r: [Math.PI / 2, 0, 0] });
+        lb.add(new THREE.TorusGeometry(r - 0.04, 0.07, 6, 44), COL.ink, { p: [0, upper ? -0.07 : 0.07, 0], r: [Math.PI / 2, 0, 0] });
+        return new THREE.Mesh(lb.build(), lidMat);
+    };
+    const upper = lid(true), lower = lid(false);
     g.add(upper, lower);
     return { group: g, eye, mat, upper, lower, lidMat, shine };
 }
 
-function buildMouth() {
+function buildMouth(U) {
     const g = new THREE.Group();
     const inside = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), toonMaterial({ color: COL.mouth }));
     inside.scale.set(1.45, 0.3, 0.45);
@@ -162,14 +454,70 @@ function buildMouth() {
     const jb = new GeoBuilder();
     for (const x of [-0.7, 0, 0.7]) jb.add(new THREE.ConeGeometry(0.15, 0.6, 8), COL.fang, { p: [x, 0.1, 0.12] });
     jb.add(new THREE.SphereGeometry(1, 20, 10), COL.belly, { p: [0, -0.25, -0.1], s: [1.55, 0.35, 0.6] });
-    const jawMesh = new THREE.Mesh(jb.build(), toonMaterial({ vertexColors: true, glow: true, rim: 0.5, rimColor: 0xd8c8ff }));
-    addOutline(jawMesh, 0x1b1030, 0.002);
+    const jawMat = glxMaterial({ vertexColors: true, glow: true, rim: 0.5, rimColor: 0xd8c8ff }, { GLX_RAGE: '' }, U);
+    const jawMesh = new THREE.Mesh(jb.build(), jawMat);
+    addOutline(jawMesh, COL.ink, 0.002);
     jaw.add(jawMesh);
     g.add(jaw);
+    // a ball of green goo that bubbles up before a spit
+    const goo = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 12), toonMaterial({ color: 0x9dff5a, emissive: 0x3a8a1a, rim: 0.6, rimColor: 0xeaffc0, cache: false }));
+    goo.position.set(0, -0.1, 0.2);
+    goo.visible = false;
+    g.add(goo);
     const glow = glowSprite(0x9dff5a, 2.5, 0);
     glow.position.z = 0.4;
     g.add(glow);
-    return { group: g, inside, jaw, glow };
+    return { group: g, inside, tongue, jaw, jawMat, glow, goo };
+}
+
+// ------------------------------------------------------------
+// Tentacles: one smooth, tapered tube per arm, all in one mesh. The vertices are
+// moved along each arm's Bezier curve every frame (about 500 per arm).
+// ------------------------------------------------------------
+// Thickness along an arm (u: 0 at the body, 1 at the tip). Matches the hit spheres, then tapers to a point.
+function tentRadius(u) {
+    return lerp(1.02, 0.27, u) * Math.pow(clamp((1 - u) / 0.24, 0, 1), 0.75);
+}
+
+function buildTentacleGeometry() {
+    const n = N_TENT * T_VERTS;
+    const geo = new THREE.BufferGeometry();
+    const pos = new THREE.BufferAttribute(new Float32Array(n * 3), 3);
+    const nor = new THREE.BufferAttribute(new Float32Array(n * 3), 3);
+    pos.setUsage(THREE.DynamicDrawUsage);
+    nor.setUsage(THREE.DynamicDrawUsage);
+    // tuv = (sucker count along the arm, around the arm with 0.5 = underside, 0..1 base to tip)
+    const tuv = new Float32Array(n * 3);
+    const du = 1 / (T_RINGS - 1);
+    const w = [];
+    let acc = 0;
+    for (let i = 0; i < T_RINGS; i++) {
+        if (i > 0) acc += (du * T_REST_LEN) / (0.45 * Math.max(0.16, tentRadius((i - 0.5) * du)));
+        w.push(acc);
+    }
+    const idx = [];
+    for (let k = 0; k < N_TENT; k++) {
+        const o = k * T_VERTS;
+        for (let i = 0; i < T_RINGS; i++) {
+            for (let j = 0; j < T_COLS; j++) {
+                const v = (o + i * T_COLS + j) * 3;
+                tuv[v] = w[i] + k * 0.31;
+                tuv[v + 1] = j / T_SIDES;
+                tuv[v + 2] = i * du;
+            }
+        }
+        for (let i = 0; i < T_RINGS - 1; i++) {
+            for (let j = 0; j < T_SIDES; j++) {
+                const a = o + i * T_COLS + j, b = a + T_COLS;
+                idx.push(a, b, a + 1, b, b + 1, a + 1);
+            }
+        }
+    }
+    geo.setIndex(idx);
+    geo.setAttribute('position', pos);
+    geo.setAttribute('normal', nor);
+    geo.setAttribute('tuv', new THREE.BufferAttribute(tuv, 3));
+    return geo;
 }
 
 // ============================================================
@@ -203,6 +551,16 @@ export class Boss {
         this.lookYaw = 0;
         this.lookPitch = 0;
         this.tentOut = new Array(N_TENT).fill(0);
+        // looks only (no gameplay): squash spring, hit wobble, the face's expression
+        this.sq = 0;
+        this.sqV = 0;
+        this.jig = 0;
+        this.ouchT = 0;
+        this.rageK = 0;
+        this.lean = 0;
+        this.lunge = 0;
+        this.steamT = 0;
+        this.ex = { tilt: 0, lift: 0, su: 0.14, sl: 0.05, pr: 0.2, pw: 1, glow: 0, dizzy: 0, puff: 0 };
         this.build();
         this.resetStats();
     }
@@ -221,12 +579,23 @@ export class Boss {
         root.visible = false;
         const body = new THREE.Group();
         root.add(body);
-        body.add(buildModel());
+        // live shader values shared by all of GLORBAX's materials
+        const c3 = (hex) => ({ value: new THREE.Color(hex) });
+        const U = this.U = {
+            uBreath: { value: 0 }, uJig: { value: 0 }, uJigT: { value: 9 }, uPuff: { value: 0 }, uFlap: { value: 0 },
+            uBrowTilt: { value: 0 }, uBrowLift: { value: 0 },
+            uRage: { value: 0 }, uRageSpot: c3(0xffa040), uGlowStrength: { value: 1.4 },
+            uTTop: c3(0x3a2a96), uTSkin: c3(COL.skin), uTBelly: c3(0xb7a2ff), uTSuck: c3(0xffd2e6), uTSuckRim: c3(0xe06aa8),
+            uEyeA: { value: new THREE.Vector4(0.36, 0.2, 1, 0) },
+            uSclera: c3(COL.eye), uIrisIn: c3(0xffe27a), uIrisOut: c3(COL.iris), uIrisRing: c3(0xb4640e), uPupilCol: c3(COL.pupil),
+            uEyeGlow: c3(0x000000),
+        };
+        body.add(buildBody(U));
         this.bodyMesh = body.children[0];
-        const eye = buildEye();
+        const eye = buildEye(U);
         eye.group.position.copy(EYE_LOCAL);
         body.add(eye.group);
-        const mouth = buildMouth();
+        const mouth = buildMouth(U);
         mouth.group.position.copy(MOUTH_LOCAL);
         body.add(mouth.group);
         g.scene.add(root);
@@ -234,26 +603,25 @@ export class Boss {
         this.body = body;
         this.eye = eye;
         this.mouthParts = mouth;
+        this._irisIn = new THREE.Color(0xffe27a);
+        this._irisOut = new THREE.Color(COL.iris);
 
-        // tentacles: one instanced mesh (+ outline) for every segment
-        const segGeo = new GeoBuilder();
-        segGeo.add(new THREE.SphereGeometry(1, 12, 9), [COL.skin, (p, i, c) => {
-            const y = p.getY(i), z = p.getZ(i);
-            if (y < -0.35) c.set(Math.cos(z * 9) > 0.55 ? 0xffd0e4 : COL.sucker);
-            else if (y > 0.6) c.set(COL.back);
-            else c.set(COL.skin);
-        }], {});
-        const geo = segGeo.build();
-        this.tentMat = toonMaterial({ vertexColors: true, glow: true, rim: 0.55, rimColor: 0xd8c8ff, cache: false });
-        const count = N_TENT * N_SEG;
-        this.tentMesh = new THREE.InstancedMesh(geo, this.tentMat, count);
+        // tentacles: one smooth tube per arm, all in one mesh (+ outline), placed in world space
+        this.tentGeo = buildTentacleGeometry();
+        this.tentMat = glxMaterial({ color: 0xffffff, rim: 0.55, rimColor: 0xd8c8ff }, { GLX_TENT: '', GLX_RAGE: '' }, U);
+        this.tentMesh = new THREE.Mesh(this.tentGeo, this.tentMat);
         this.tentMesh.castShadow = true;
         this.tentMesh.frustumCulled = false;
-        this.tentLine = new THREE.InstancedMesh(geo, outlineMaterial(0x1b1030, 0.0024), count);
-        this.tentLine.instanceMatrix = this.tentMesh.instanceMatrix;
+        this.tentLine = addOutline(this.tentMesh, COL.ink, 0.0024);
         this.tentLine.frustumCulled = false;
-        // tentacle segments are placed in world space, so they hang off the scene, not the body
-        g.scene.add(this.tentMesh, this.tentLine);
+        g.scene.add(this.tentMesh);
+        // scratch space for one arm's rings: center, tangent, underside, side, radius
+        const ring = () => Array.from({ length: T_RINGS }, () => new THREE.Vector3());
+        this._rc = ring();
+        this._rt = ring();
+        this._rd = ring();
+        this._rs = ring();
+        this._rr = new Float32Array(T_RINGS);
 
         this.tents = [];
         for (let k = 0; k < N_TENT; k++) {
@@ -264,6 +632,7 @@ export class Boss {
                 target: new THREE.Vector3(), from: { P1: new THREE.Vector3(), P2: new THREE.Vector3(), T: new THREE.Vector3() },
                 spheres: Array.from({ length: N_SEG }, () => ({ c: new THREE.Vector3(), r: 0.5 })),
                 flail: Math.random() * 6,
+                curl: 1,
             });
         }
 
@@ -307,7 +676,7 @@ export class Boss {
         this.laserDir = new THREE.Vector3(0, 0, 1);
         this.eyeGlow = glowSprite(0xff3a3a, 5, 0);
         this.eye.group.add(this.eyeGlow);
-        this.eyeGlow.position.z = 1.2;
+        this.eyeGlow.position.z = EYE_R - 0.15;
         this.animate(0);
     }
 
@@ -385,6 +754,11 @@ export class Boss {
         this.hp -= amount;
         this.hurtT = 0.16;
         this.flinch = 1;
+        // looks: an "OUCH!" face and a jelly wobble
+        this.ouchT = 0.45;
+        this.jig = 1;
+        this.U.uJigT.value = 0;
+        this.sqV += 3.5;
         g.audio.play('bossHurt', this.pos);
         g.effects.sparks(point.x, point.y, point.z, 0xffe27a, 8, 5, 0.16);
         if (this.hp <= 0) {
@@ -454,6 +828,7 @@ export class Boss {
         this.active = false;
         this.visible = false;
         this.root.visible = false;
+        this.tentMesh.visible = false;
         this.state = 'dead';
         this.hp = 0;
     }
@@ -636,6 +1011,7 @@ export class Boss {
         g.effects.sparks(Q.x, 0.4, Q.z, 0xffb07a, 16, 8, 0.2);
         g.effects.ring(Q.x, 0.12, Q.z, 0xff9a6a, 4.6, 0.45);
         g.audio.play('bossSlam', Q);
+        this.sqV -= 2.5;
         const d = Math.hypot(P.pos.x - Q.x, P.pos.z - Q.z);
         if (d < 2.9 && P.pos.y < 1.4) P.hurt(this.dmg(2), _v.set(P.pos.x - Q.x, 0, P.pos.z - Q.z).normalize());
         P.shake(clamp(0.55 - d * 0.025, 0.08, 0.55));
@@ -668,6 +1044,8 @@ export class Boss {
         }
         g.audio.play('bossSpit', origin);
         g.effects.sparks(origin.x, origin.y, origin.z, 0x9dff5a, 14, 6, 0.2);
+        this.sqV += 3;
+        this.lunge = 1;
     }
 
     // ----- eye laser -----
@@ -911,35 +1289,92 @@ export class Boss {
                     break;
                 }
             }
+            // looks only: the tip curls up when resting, coils back to wind up a slam and snaps straight to hit
+            const m = tn.mode;
+            const curl = m === 'idle' || m === 'retract' ? 0.85 + Math.sin(this.t * 0.9 + tn.k * 1.9) * 0.25
+                : m === 'raise' ? 1.0
+                : m === 'flail' ? Math.sin(this.t * 6 + tn.flail) * 1.4
+                : 0;
+            tn.curl = damp(tn.curl, curl, m === 'slam' ? 30 : 5, dt);
         }
     }
 
     writeTentacles() {
-        const mesh = this.tentMesh;
-        let idx = 0;
         const t = this.t;
+        // the invisible hit spheres that block shots (gameplay: same as ever)
         for (const tn of this.tents) {
             const B = this.baseOf(tn, _base);
             for (let s = 0; s < N_SEG; s++) {
                 const u = (s + 0.5) / N_SEG;
-                bez(B, tn.P1, tn.P2, tn.T, u, _v);
-                bezD(B, tn.P1, tn.P2, tn.T, u, _bz);
-                const segLen = _bz.length() / N_SEG;
-                _bz.normalize();
-                _bx.crossVectors(_up, _bz);
-                if (_bx.lengthSq() < 1e-6) _bx.set(1, 0, 0);
-                _bx.normalize();
-                _by.crossVectors(_bz, _bx);
-                const r = lerp(1.0, 0.26, u) * (1 + Math.sin(t * 3 + s * 0.7 + tn.k) * 0.06);
-                _m.makeBasis(_bx.multiplyScalar(r), _by.multiplyScalar(r), _bz.multiplyScalar(Math.max(segLen * 0.95, r * 0.9)));
-                _m.setPosition(_v);
-                mesh.setMatrixAt(idx++, _m);
                 const sp = tn.spheres[s];
-                sp.c.copy(_v);
-                sp.r = r * 1.05;
+                bez(B, tn.P1, tn.P2, tn.T, u, sp.c);
+                sp.r = lerp(1.0, 0.26, u) * (1 + Math.sin(t * 3 + s * 0.7 + tn.k) * 0.06) * 1.05;
             }
         }
-        mesh.instanceMatrix.needsUpdate = true;
+        if (!this.root.visible) return;
+        // the skin: a tube around each arm's curve
+        const P = this.tentGeo.attributes.position.array, N = this.tentGeo.attributes.normal.array;
+        const RC = this._rc, RT = this._rt, RD = this._rd, RS = this._rs, RR = this._rr;
+        const last = T_RINGS - 1;
+        for (const tn of this.tents) {
+            const B = this.baseOf(tn, _base);
+            for (let i = 0; i < T_RINGS; i++) {
+                const u = i / last;
+                bez(B, tn.P1, tn.P2, tn.T, u, RC[i]);
+                bezD(B, tn.P1, tn.P2, tn.T, u, RT[i]);
+                if (RT[i].lengthSq() < 1e-8) RT[i].copy(i ? RT[i - 1] : _up);
+                RT[i].normalize();
+                // a gentle squeeze that ripples down the arm
+                RR[i] = tentRadius(u) * (1 + Math.sin(t * 3 - u * 12 + tn.k * 1.3) * 0.06);
+            }
+            // frames that don't twist: the underside starts out facing down and is carried along the arm
+            _side.set(-Math.sin(tn.angle), 0, Math.cos(tn.angle));
+            RD[0].crossVectors(RT[0], _side);
+            if (RD[0].lengthSq() < 1e-6) RD[0].set(0, -1, 0);
+            RD[0].normalize();
+            RS[0].crossVectors(RT[0], RD[0]);
+            for (let i = 1; i < T_RINGS; i++) {
+                RD[i].copy(RD[i - 1]).addScaledVector(RT[i], -RD[i - 1].dot(RT[i])).normalize();
+                RS[i].crossVectors(RT[i], RD[i]);
+            }
+            // curl the tip up (suckers on the outside, like a cartoon octopus)
+            if (Math.abs(tn.curl) > 0.01) {
+                _axis.copy(RS[CURL_FROM]);
+                _prev.copy(RC[CURL_FROM]);
+                let phi = 0;
+                for (let i = CURL_FROM + 1; i < T_RINGS; i++) {
+                    phi -= tn.curl * 0.5 * Math.pow((i - CURL_FROM) / (last - CURL_FROM), 1.2);
+                    _q.setFromAxisAngle(_axis, phi);
+                    _seg.copy(RC[i]).sub(_prev);
+                    _prev.copy(RC[i]);
+                    RC[i].copy(RC[i - 1]).add(_seg.applyQuaternion(_q));
+                    RT[i].applyQuaternion(_q);
+                    RD[i].applyQuaternion(_q);
+                    RS[i].applyQuaternion(_q);
+                }
+            }
+            let o = tn.k * T_VERTS * 3;
+            for (let i = 0; i < T_RINGS; i++) {
+                const i0 = Math.max(0, i - 1), i1 = Math.min(last, i + 1);
+                const slope = (RR[i1] - RR[i0]) / (RC[i0].distanceTo(RC[i1]) || 1);
+                const c = RC[i], T = RT[i], D = RD[i], S = RS[i], r = RR[i];
+                for (let j = 0; j < T_COLS; j++) {
+                    const cs = T_COS[j], sn = T_SIN[j];
+                    const dx = sn * S.x - cs * D.x, dy = sn * S.y - cs * D.y, dz = sn * S.z - cs * D.z;
+                    P[o] = c.x + dx * r;
+                    P[o + 1] = c.y + dy * r;
+                    P[o + 2] = c.z + dz * r;
+                    const nx = dx - T.x * slope, ny = dy - T.y * slope, nz = dz - T.z * slope;
+                    const l = Math.hypot(nx, ny, nz) || 1;
+                    N[o] = nx / l;
+                    N[o + 1] = ny / l;
+                    N[o + 2] = nz / l;
+                    o += 3;
+                }
+            }
+        }
+        this.tentGeo.attributes.position.needsUpdate = true;
+        this.tentGeo.attributes.normal.needsUpdate = true;
     }
 
     // --------------------------------------------------------
@@ -986,22 +1421,69 @@ export class Boss {
     animate(dt) {
         const t = this.t;
         const C = this.center;
+        const U = this.U;
+        const st = this.state, sT = this.stateT;
+        const rage = this.phase >= 3 ? 1 : 0;
         this.hurtT = Math.max(0, this.hurtT - dt);
         this.flinch = Math.max(0, (this.flinch || 0) - dt * 4);
+        this.ouchT = Math.max(0, this.ouchT - dt);
+        this.rageK = damp(this.rageK, st === 'dying' ? 0 : rage, st === 'dying' ? 1.2 : 2.5, dt); // calms down when it's beaten
+        this.lunge = Math.max(0, this.lunge - dt * 3);
+        // squash and stretch: a wobbly spring that hits, slams and spits kick
+        this.sqV += (-140 * this.sq - 7 * this.sqV) * dt;
+        this.sq = clamp(this.sq + this.sqV * dt, -0.6, 0.6);
+        let sq = this.sq;
+        if (st === 'dying') sq += Math.sin(t * 13) * 0.3 * Math.min(1, sT);
+        if (st === 'roar') sq -= 0.25 * Math.min(1, sT * 3) * (sT < 2 ? 1 : Math.max(0, 1 - (sT - 2) * 3));
         const bob = Math.sin(t * 1.25) * 0.35;
         const y = lerp(-16, BODY_Y, easeOut(clamp(this.rise, 0, 1))) + bob * this.rise;
         this.root.position.set(C.x, y, C.z);
         this.root.updateMatrixWorld();
         // turn toward the target (slowly)
-        const turn = this.state === 'intro' ? 3 : 1.4;
+        const turn = st === 'intro' ? 3 : 1.4;
         this.yaw = dampAngle(this.yaw, this.faceYaw, turn, dt);
-        this.body.rotation.set(-this.flinch * 0.18 - (this.state === 'roar' ? 0.25 * Math.min(1, this.stateT * 3) : 0), this.yaw, Math.sin(t * 0.8) * 0.04);
+        // lean in to wind up a slam, and into the laser
+        const lean = st === 'slam' ? 0.12 : st === 'laser' ? 0.06 : 0;
+        this.lean = damp(this.lean, lean, 4, dt);
+        this.body.rotation.set(-this.flinch * 0.18 - (st === 'roar' ? 0.25 * Math.min(1, sT * 3) : 0) + this.lean, this.yaw, Math.sin(t * 0.8) * 0.04);
         const breathe = 1 + Math.sin(t * 2.1) * 0.025;
-        this.body.scale.set(breathe, 1 / breathe, breathe);
-        if (this.state === 'dying') {
+        this.body.scale.set(breathe * (1 + sq * 0.1), (1 - sq * 0.12) / breathe, breathe * (1 + sq * 0.1));
+        const lg = this.lunge * this.lunge * 0.6;
+        this.body.position.set(Math.sin(this.yaw) * lg, 0, Math.cos(this.yaw) * lg);
+        if (st === 'dying') {
             this.body.rotation.z += Math.sin(t * 25) * 0.06;
-            this.body.position.x = Math.sin(t * 31) * 0.15;
+            this.body.position.x += Math.sin(t * 31) * 0.15;
         }
+        if (st === 'laser' && sT < 1.3) this.body.position.x += Math.sin(t * 70) * 0.05 * (sT / 1.3); // shaking with power
+
+        // the face: what the brow, lids and pupil want to do right now
+        let tilt = 0.1 * (this.phase - 1), lift = 0, su = 0.14, sl = 0.05, pr = 0.2, pw = 0.5, glow = 0, dizzy = 0, puff = 0;
+        if (rage) { tilt = 0.32; su = 0.26; pw = 0.34; }
+        if (st === 'laser') {
+            const ch = clamp(sT / 1.3, 0, 1);
+            tilt = 0.42; lift = -0.2 * ch; su = 0.2 + 0.22 * ch; sl = 0.08 + 0.3 * ch; pr = 0.22; pw = lerp(0.5, 0.15, ch);
+            glow = sT < 1.3 ? ch * 0.7 : sT < 3.0 ? 1 : 0;
+        } else if (st === 'slam') {
+            tilt = 0.38; lift = -0.12; su = Math.max(su, 0.24); pw = 0.34;
+        } else if (st === 'spit') {
+            puff = sT < 0.75 ? smoothstep(0, 0.6, sT) : Math.max(0, 1 - (sT - 0.75) * 8);
+            tilt = -0.12; lift = 0.14; pr = 0.17;
+        } else if (st === 'roar') {
+            tilt = 0.48; lift = -0.2;
+        } else if (st === 'dying') {
+            tilt = -0.4; lift = 0.22; dizzy = 1;
+        }
+        if (this.ouchT > 0) { tilt = -0.35; lift = 0.28; pr = 0.11; pw = 1; }
+        const E = this.ex;
+        E.tilt = damp(E.tilt, tilt, 12, dt);
+        E.lift = damp(E.lift, lift, 12, dt);
+        E.su = damp(E.su, su, 10, dt);
+        E.sl = damp(E.sl, sl, 10, dt);
+        E.pr = damp(E.pr, pr, 9, dt);
+        E.pw = this.eyeOpen < 0.95 ? 1 : damp(E.pw, pw, 5, dt); // the pupil is wide open when the eye first snaps open
+        E.glow = damp(E.glow, glow, 10, dt);
+        E.dizzy = damp(E.dizzy, dizzy, 4, dt);
+        E.puff = damp(E.puff, puff, 14, dt);
 
         // eyelids: open/closed (closed while roaring, blinking now and then)
         this.blinkT -= dt;
@@ -1015,9 +1497,11 @@ export class Boss {
         if (this.hurtT > 0) close = Math.max(close, 0.35);
         this.lidClose = clamp(close, 0, 1);
         const lc = this.lidClose;
-        this.eye.upper.rotation.x = lerp(-1.15, 0.55, lc);
-        this.eye.lower.rotation.x = lerp(1.05, -0.55, lc);
-        this.eye.shine.visible = lc < 0.45;
+        // the lids show the gameplay state, plus a squint (still open enough to shoot)
+        const cu = Math.max(lc, E.su), cl = Math.max(lc, E.sl);
+        this.eye.upper.rotation.x = lerp(-1.15, 0.55, cu);
+        this.eye.lower.rotation.x = lerp(1.05, -0.55, cl);
+        this.eye.shine.visible = cu < 0.45 && E.dizzy < 0.5;
         // the eye follows its target
         this.body.updateMatrixWorld();
         this.eye.group.getWorldPosition(this.pos);
@@ -1026,24 +1510,69 @@ export class Boss {
         const pitch = Math.atan2(_v.y, Math.hypot(_v.x, _v.z));
         this.lookYaw = damp(this.lookYaw, clamp(localYaw, -0.8, 0.8), 10, dt);
         this.lookPitch = damp(this.lookPitch, clamp(-pitch, -0.6, 0.6), 10, dt);
-        if (this.state === 'dying') { this.lookYaw = Math.sin(t * 12) * 0.6; this.lookPitch = Math.cos(t * 12) * 0.4; }
+        if (st === 'dying') { this.lookYaw = Math.sin(t * 5) * 0.25; this.lookPitch = Math.cos(t * 5) * 0.15; }
+        if (this.ouchT > 0) this.lookYaw += Math.sin(t * 50) * 0.06 * this.ouchT;
         this.eye.eye.rotation.set(this.lookPitch, this.lookYaw, 0);
+        // the iris: gold, red-hot when charging the laser or furious, and a spiral when knocked out
+        U.uEyeA.value.set(0.36, E.pr, E.pw, E.dizzy);
+        const hot = Math.max(E.glow, this.rageK * 0.75);
+        U.uIrisIn.value.copy(this._irisIn).lerp(_c.setRGB(1, 0.42, 0.25), hot);
+        U.uIrisOut.value.copy(this._irisOut).lerp(_c.setRGB(0.85, 0.05, 0.04), hot);
+        U.uEyeGlow.value.setRGB(1, 0.15, 0.12).multiplyScalar(E.glow * 1.3);
         // colors: flash white when hurt, red when furious
-        const rage = this.phase >= 3 ? 1 : 0;
         const em = this.eye.mat.emissive;
         if (this.hurtT > 0) em.setRGB(0.8, 0.8, 0.8);
-        else em.setRGB(rage * 0.35, 0, 0);
+        else em.setRGB(0, 0, 0);
+        U.uRage.value = this.rageK;
         const bm = this.bodyMesh.material;
-        bm.emissive.setRGB(rage * (0.22 + Math.sin(t * 6) * 0.08) + (this.hurtT > 0 ? 0.3 : 0), this.hurtT > 0 ? 0.25 : 0, this.hurtT > 0 ? 0.3 : 0);
+        bm.emissive.setRGB(this.rageK * (0.12 + Math.sin(t * 6) * 0.06) + (this.hurtT > 0 ? 0.3 : 0), this.hurtT > 0 ? 0.25 : 0, this.hurtT > 0 ? 0.3 : 0);
         this.tentMat.emissive.copy(bm.emissive);
+        this.eye.lidMat.emissive.copy(bm.emissive);
+        this.mouthParts.jawMat.emissive.copy(bm.emissive);
+        // squishy body: breathing mantle, puffed cheeks, the brow, flapping fins, the hit wobble
+        this.jig = damp(this.jig, 0, 2.2, dt);
+        U.uJig.value = this.jig;
+        U.uJigT.value += dt;
+        U.uBreath.value = st === 'dying' ? -0.6 - Math.sin(t * 9) * 0.4 : Math.sin(t * (rage ? 3.2 : 2.1)) + (st === 'roar' ? 0.8 : 0);
+        U.uPuff.value = E.puff;
+        U.uBrowTilt.value = E.tilt;
+        U.uBrowLift.value = E.lift;
+        U.uFlap.value = st === 'dying' ? -0.5 + Math.sin(t * 11) * 0.25
+            : st === 'roar' ? Math.sin(t * 16) * 0.4
+            : Math.sin(t * (rage ? 4.5 : 2.4) + 0.5) * 0.2 - this.lean;
+        U.uGlowStrength.value = 1.2 + Math.sin(t * (rage ? 7 : 2.1) + 1) * 0.5;
         // mouth
         const m = this.mouthParts;
         const mo = clamp(this.mouth, 0, 1);
         m.inside.scale.y = 0.3 + mo * 0.75;
         m.jaw.position.y = -0.15 - mo * 0.8;
-        m.glow.material.opacity = this.state === 'spit' ? mo * 0.9 : 0;
+        if (st === 'dying') {
+            // knocked out: tongue hanging out
+            m.tongue.position.set(Math.sin(t * 7) * 0.1, -0.5 - mo * 0.4, 0.45);
+            m.tongue.scale.set(0.6, 0.2, 0.75);
+        } else {
+            m.tongue.position.set(0, -0.15 - mo * 0.45, 0.05);
+            m.tongue.scale.set(0.75, 0.22, 0.35);
+        }
+        const spitting = st === 'spit';
+        m.goo.visible = spitting && mo > 0.05 && sT < 0.85;
+        m.goo.scale.setScalar((0.35 + mo * 0.75) * (1 + Math.sin(t * 24) * 0.07));
+        m.glow.material.opacity = spitting ? mo * 0.9 : 0;
         m.glow.scale.setScalar(1.5 + mo * 2);
-        this.tentMesh.visible = this.tentLine.visible = this.root.visible;
+        // furious: steam puffs out of the top of its head
+        if (rage && this.active && this.root.visible) {
+            this.steamT -= dt;
+            if (this.steamT <= 0) {
+                this.steamT = 0.11;
+                _v.set((Math.random() < 0.5 ? -1 : 1) * 1.5, 4.5, -1.6);
+                this.body.localToWorld(_v);
+                this.game.effects.spawn({
+                    x: _v.x, y: _v.y, z: _v.z, vx: rand(-0.8, 0.8), vy: rand(3, 5), vz: rand(-0.8, 0.8),
+                    life: rand(0.5, 0.8), size: 0.45, size1: 1.4, color: 0xffe0e0, color1: 0xff9a9a, alpha: 0.7, alpha1: 0, drag: 1.4,
+                });
+            }
+        }
+        this.tentMesh.visible = this.root.visible;
         this.writeTentacles();
     }
 }
