@@ -59,6 +59,20 @@ node grid.mjs out/sheet.png 3 out/c4_reveal.png out/c5_pull.png out/c6_press.png
 | `finale.json` | Screenshots of the escape pod ending and the end screen |
 | `perf.json` | Draw calls and triangles in each area of both levels |
 
+## Combat effects, frame by frame
+
+`combat-shots.mjs` captures combat effects one game step at a time, which is how short effects (bolts, impacts,
+poofs, grenade blasts) are reviewed. It holds the real game loop, advances the game in small steps and screenshots
+each one, with `Math.random` seeded so runs repeat.
+
+```sh
+node combat-shots.mjs after                       # every scenario: out/combat-after/*.png, one sheet per scenario,
+                                                  # and out/combat-after.png (one row per scenario)
+node combat-shots.mjs try mars_poof ship_grenade  # just some scenarios
+node combat-shots.mjs perf --perf                 # the heaviest fight (every Reactor Core wave at once), timed
+node combat-shots.mjs probe --eval "fx.mars(); return game.combat.tally"   # run JS with the capture helpers
+```
+
 ## Writing a test
 
 A test is a JSON array of steps (see the top of `run.mjs`). Most of the work happens in `eval` steps that call the
