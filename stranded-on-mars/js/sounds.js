@@ -15,8 +15,9 @@ export const AUDIO_V = 1;
 export const SFX_FILES = {
 };
 
-// song: { loop (seconds, the exact loop length), once (play once, don't loop),
-//         stems: { layer: 'file under audio/music/ without .mp3' }, gain }
+// song: { loop (seconds, the exact loop length), pad (seconds of overlap copied onto each end
+//         of the file, usually 0.5), once (play once, don't loop),
+//         stems: { layer: 'file under audio/music/ without .mp3' }, gain, fadeIn }
 export const MUSIC = {
 };
 

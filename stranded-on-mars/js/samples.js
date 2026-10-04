@@ -140,13 +140,16 @@ export class StemMusic {
             g.connect(bus);
             const src = ctx.createBufferSource();
             src.buffer = this.bank.buffers.get('music/' + file);
+            // Loops carry `pad` seconds of overlap on each side (the loop's end copied before
+            // its start and vice versa), so the encoder's edges never land on the loop point
+            const pad = S.pad || 0;
             if (!S.once) {
                 src.loop = true;
-                src.loopStart = 0;
-                src.loopEnd = S.loop || src.buffer.duration;
+                src.loopStart = pad;
+                src.loopEnd = pad + (S.loop || src.buffer.duration - 2 * pad);
             }
             src.connect(g);
-            src.start(t);
+            src.start(t, pad);
             layers[layer] = { g, src, on: 0 };
         }
         return { name, bus, layers, t0: t, fadeIn: S.fadeIn ?? 0.5 };
