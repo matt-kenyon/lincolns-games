@@ -34,9 +34,10 @@ const CAPE = 0x6a2a8c, OUTLINE = 0x1b1030;
 const HIP_Y = 0.62;          // hip joint height (= leg length, so straight legs keep the feet on the ground)
 const NECK_Y = 0.66;         // head pivot, above the hips
 const JAW_P = [0, 0.13, 0.03]; // jaw hinge, in head space
-// Where hits count (x the type's scale): the top of the vertical hit capsule, the headshot line (the mouth),
-// and the two points aim assist goes for (the chest, or the head when only the head peeks over cover)
-export const ALIEN_CAP_TOP = 1.78, ALIEN_HEAD_LINE = 1.42, ALIEN_HEAD_MID = 1.64, ALIEN_CHEST = 1.15;
+// Where hits count (x the type's scale): the top of the vertical hit capsule, the headshot line (the bottom
+// of the lower jaw, so a hit anywhere on the head counts), and the two points aim assist goes for (the chest,
+// or the head when only the head peeks over cover)
+export const ALIEN_CAP_TOP = 1.78, ALIEN_HEAD_LINE = 1.28, ALIEN_HEAD_MID = 1.64, ALIEN_CHEST = 1.15;
 
 // ------------------------------------------------------------
 // Shape helpers (smooth, closed shapes so the ink outlines don't crack)
