@@ -7,13 +7,39 @@ import * as THREE from 'three';
 import { GeoBuilder, vcMat, addOutline, toonMaterial, toonRamp, glowSprite } from './toon.js';
 import { makeRng, fbm2, perlin2, smoothstep, clamp } from './util.js';
 
-const WHITE = 0xf6f2ea, ORANGE = 0xff7a2e, GRAY = 0x8d97a3, DARK = 0x3a4250, VISOR = 0xffb340;
+const WHITE = 0xf6f2ea, ORANGE = 0xff7a2e;
+
+// Lincoln's suit wears his ship's colors (the LINCOLN-1: white, orange stripes, blue glass), so the
+// hero and his rocket read as a set. The first-person glove (player.js) uses the same palette and
+// the same addGlove() below, so the hand you see in play is the hand in the cutscenes.
+export const SUIT = {
+    white: WHITE,
+    orange: ORANGE,
+    slate: 0x4f586b, // collar, belt, ear pucks, nozzles
+    sole: 0x30364a,
+    visorTop: 0x152650, visorMid: 0x2d6db5, visorLow: 0x6fd3f2, // the ship's canopy blue, darker on top
+    beacon: 0xff4a3a,
+};
+
+// A chunky mitten glove with a flared orange cuff. Local frame: the glove's center is the origin and
+// the arm runs up +Y (the cuff sits above the glove). `thumb` = +1 / -1 puts the thumb on +X / -X.
+export function addGlove(b, matrix, thumb = 1) {
+    b.add(new THREE.CylinderGeometry(0.098, 0.124, 0.095, 16), SUIT.orange, { p: [0, 0.1, 0], matrix });
+    b.add(new THREE.SphereGeometry(0.11, 14, 10), SUIT.white, { p: [0, 0, 0.005], s: [1, 1.02, 1.12], matrix });
+    b.add(new THREE.SphereGeometry(0.048, 10, 8), SUIT.white, { p: [thumb * 0.085, 0.025, 0.045], matrix });
+}
+
+// Proportions (meters, root at the soles): short chunky legs, an egg-shaped body and a big bubble
+// helmet. The body and the legs both pivot at the hips, so leaning (body.rotation.x) bends at the
+// waist and `sit` folds the knees while the feet stay on the ground.
+const HIP = 0.58, THIGH = 0.25, NECK = 1.1, HELMET_R = 0.42, HELMET_Y = 0.3; // helmet center above the neck
 
 export function createAstronaut() {
     const mat = vcMat({ rim: 0.6 });
     const root = new THREE.Group();
-    const body = new THREE.Group();
-    root.add(body);
+    const body = new THREE.Group(); // upper body, pivots at the hips
+    const pelvis = new THREE.Group(); // holds the legs
+    root.add(body, pelvis);
     const mk = (geo, parent) => {
         const m = new THREE.Mesh(geo, mat);
         m.castShadow = true;
@@ -21,67 +47,126 @@ export function createAstronaut() {
         parent.add(m);
         return m;
     };
-    // torso
+    const y = (h) => h - HIP; // world height when standing -> body space
+
+    // ---- torso: egg body, belt, collar, chest patch, rocket backpack
     let b = new GeoBuilder();
-    b.add(new THREE.CapsuleGeometry(0.27, 0.32, 4, 12), WHITE, { p: [0, 1.08, 0] });
-    b.add(new THREE.BoxGeometry(0.26, 0.2, 0.08), ORANGE, { p: [0, 1.14, 0.25] });
-    b.add(new THREE.SphereGeometry(0.035, 8, 6), 0xff4040, { p: [-0.06, 1.16, 0.3] }, 1.2);
-    b.add(new THREE.SphereGeometry(0.035, 8, 6), 0x40c0ff, { p: [0.06, 1.16, 0.3] }, 1.2);
-    b.add(new THREE.BoxGeometry(0.44, 0.5, 0.22), 0xdcd6cc, { p: [0, 1.12, -0.28] });
-    b.add(new THREE.CylinderGeometry(0.29, 0.3, 0.08, 14), GRAY, { p: [0, 0.8, 0] });
+    b.add(new THREE.CapsuleGeometry(0.27, 0.1, 5, 18), WHITE, { p: [0, y(0.82), 0], s: [1, 1, 0.9] });
+    b.add(new THREE.CylinderGeometry(0.283, 0.262, 0.075, 22), SUIT.slate, { p: [0, y(0.7), 0], s: [1, 1, 0.9] });
+    // collar ring, right on the seam where the helmet meets the body
+    b.add(new THREE.TorusGeometry(0.215, 0.05, 8, 26), SUIT.slate, { p: [0, y(1.04), 0], r: [Math.PI / 2, 0, 0] });
+    // mission patch: an orange badge with a white "L"
+    const patch = new THREE.Matrix4().compose(new THREE.Vector3(0, y(0.92), 0.236), new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.18, 0, 0)), new THREE.Vector3(1, 1, 1));
+    b.add(new THREE.CylinderGeometry(0.105, 0.105, 0.03, 24), ORANGE, { r: [Math.PI / 2, 0, 0], matrix: patch });
+    b.add(new THREE.TorusGeometry(0.106, 0.014, 6, 28), SUIT.slate, { matrix: patch });
+    b.add(new THREE.BoxGeometry(0.034, 0.112, 0.03), WHITE, { p: [-0.022, 0.002, 0.014], matrix: patch }, 0.15);
+    b.add(new THREE.BoxGeometry(0.078, 0.034, 0.03), WHITE, { p: [0.0, -0.037, 0.014], matrix: patch }, 0.15);
+    // backpack: a rounded pack with an orange lid and two little rocket nozzles
+    const bp = [0, y(0.86), -0.3], bs = [1.35, 1, 0.62];
+    b.add(new THREE.CapsuleGeometry(0.17, 0.26, 4, 16), WHITE, { p: bp, s: bs });
+    b.add(new THREE.SphereGeometry(0.178, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2), ORANGE, { p: [0, bp[1] + 0.13, bp[2]], s: [1.35, 1.05, 0.66] });
+    for (const sx of [-1, 1]) {
+        b.add(new THREE.CylinderGeometry(0.045, 0.068, 0.1, 12), SUIT.slate, { p: [sx * 0.11, y(0.545), -0.3] });
+    }
     mk(b.build(), body);
-    // helmet
+
+    // ---- helmet: a big bubble with a blue visor in an orange rim, ear pucks and a beacon antenna
     const head = new THREE.Group();
-    head.position.set(0, 1.5, 0);
+    head.position.set(0, y(NECK), 0);
     body.add(head);
     b = new GeoBuilder();
-    b.add(new THREE.SphereGeometry(0.34, 20, 16), WHITE, { p: [0, 0.08, 0] });
-    // (phi is measured from -X, so start at 0.08π to center the visor on the front, +Z)
-    b.add(new THREE.SphereGeometry(0.29, 18, 12, Math.PI * 0.08, Math.PI * 0.84, Math.PI * 0.22, Math.PI * 0.42), VISOR, { p: [0, 0.08, 0.075] }, 0.25);
-    b.add(new THREE.CylinderGeometry(0.2, 0.24, 0.08, 14), GRAY, { p: [0, -0.24, 0] });
-    b.add(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 6), GRAY, { p: [0.22, 0.4, -0.05] });
-    b.add(new THREE.SphereGeometry(0.04, 8, 6), 0xff4040, { p: [0.22, 0.51, -0.05] }, 1.4);
-    mk(b.build(), head);
-    // limbs
-    const limb = (len, r, cuff) => {
-        const lb = new GeoBuilder();
-        lb.add(new THREE.CapsuleGeometry(r, len, 4, 10), WHITE, { p: [0, -len / 2 - r * 0.5, 0] });
-        lb.add(new THREE.CylinderGeometry(r * 1.12, r * 1.12, 0.07, 10), cuff, { p: [0, -len * 0.75, 0] });
-        lb.add(new THREE.SphereGeometry(r * 1.15, 10, 8), cuff === ORANGE ? WHITE : DARK, { p: [0, -len - r * 0.6, 0.02], s: [1, 0.8, 1.3] });
-        return lb.build();
-    };
-    const armGeo = limb(0.38, 0.085, ORANGE);
-    const legGeo = limb(0.42, 0.1, DARK);
-    const arms = [], legs = [];
+    const R = HELMET_R, HY = HELMET_Y;
+    b.add(new THREE.SphereGeometry(R, 28, 18), WHITE, { p: [0, HY, 0] });
+    const tilt = 0.14, va = 0.87, rv = R + 0.012; // visor: a cap on the helmet, tipped a little down
+    const visorCol = new THREE.Color(), cTop = new THREE.Color(SUIT.visorTop), cMid = new THREE.Color(SUIT.visorMid), cLow = new THREE.Color(SUIT.visorLow);
+    b.add(new THREE.SphereGeometry(rv, 36, 8, 0, Math.PI * 2, 0, va), [SUIT.visorMid, (p, i, c) => {
+        const v = (p.getY(i) - HY) / rv; // -0.9 (chin) .. 0.75 (brow)
+        visorCol.copy(cMid).lerp(cTop, smoothstep(-0.05, 0.55, v)).lerp(cLow, 1 - smoothstep(-0.88, -0.45, v));
+        c.copy(visorCol);
+    }], { p: [0, HY, 0], r: [Math.PI / 2 + tilt, 0, 0] }, 0.18);
+    const rimD = rv * Math.cos(va);
+    b.add(new THREE.TorusGeometry(rv * Math.sin(va), 0.038, 8, 40), ORANGE, { p: [0, HY - Math.sin(tilt) * rimD, Math.cos(tilt) * rimD], r: [tilt, 0, 0] });
+    // the shine: a curved streak and a dot (upper left), lying on a ring of the glass
+    const fr = 0.66, rr = rv * Math.sin(va * fr), dd = rv * Math.cos(va * fr), a0 = 1.95, arc = 0.85;
+    const onGlass = (ang) => [ // a point on that ring, `ang` around the visor's center
+        Math.cos(ang) * rr,
+        HY + Math.sin(ang) * rr * Math.cos(tilt) - dd * Math.sin(tilt),
+        Math.sin(ang) * rr * Math.sin(tilt) + dd * Math.cos(tilt),
+    ];
+    b.add(new THREE.TorusGeometry(rr, 0.022, 6, 14, arc), 0xffffff, { p: [0, HY - Math.sin(tilt) * dd, Math.cos(tilt) * dd], r: [tilt, 0, a0] }, 1);
+    for (const e of [a0, a0 + arc]) b.add(new THREE.SphereGeometry(0.022, 8, 6), 0xffffff, { p: onGlass(e) }, 1);
+    b.add(new THREE.SphereGeometry(0.03, 10, 8), 0xffffff, { p: onGlass(a0 + arc + 0.42) }, 1);
+    // ear pucks (the left one carries the antenna)
     for (const sx of [-1, 1]) {
-        const a = new THREE.Group();
-        a.position.set(sx * 0.34, 1.3, 0);
-        body.add(a);
-        mk(armGeo, a);
-        arms.push(a);
-        const l = new THREE.Group();
-        l.position.set(sx * 0.13, 0.82, 0);
-        body.add(l);
-        mk(legGeo, l);
-        legs.push(l);
+        b.add(new THREE.CylinderGeometry(0.105, 0.105, 0.08, 20), SUIT.slate, { p: [sx * (R - 0.012), HY - 0.02, -0.04], r: [0, 0, Math.PI / 2] });
+        b.add(new THREE.CylinderGeometry(0.06, 0.06, 0.09, 16), ORANGE, { p: [sx * (R - 0.004), HY - 0.02, -0.04], r: [0, 0, Math.PI / 2] });
     }
+    b.add(new THREE.CylinderGeometry(0.016, 0.022, 0.36, 8), SUIT.slate, { p: [R + 0.04, HY + 0.24, -0.06], r: [0, 0, -0.16] });
+    b.add(new THREE.SphereGeometry(0.05, 12, 10), SUIT.beacon, { p: [R + 0.07, HY + 0.43, -0.06] }, 1.3);
+    mk(b.build(), head);
+
+    // ---- arms: they hang down (-Y) from the shoulder; index 0 is his right arm (-X)
+    const arms = [], legs = [], shins = [];
+    for (const sx of [-1, 1]) {
+        const ab = new GeoBuilder();
+        ab.add(new THREE.CapsuleGeometry(0.088, 0.2, 4, 12), WHITE, { p: [0, -0.14, 0] });
+        addGlove(ab, new THREE.Matrix4().makeTranslation(0, -0.43, 0), -sx);
+        const a = new THREE.Group();
+        a.position.set(sx * 0.31, y(1.0), 0);
+        body.add(a);
+        mk(ab.build(), a);
+        arms.push(a);
+    }
+    // ---- legs: thigh + shin, chunky boots with orange cuffs and dark soles
+    const thighGeo = new GeoBuilder().add(new THREE.CapsuleGeometry(0.115, 0.13, 4, 12), WHITE, { p: [0, -0.1, 0] }).build();
+    const sb = new GeoBuilder();
+    sb.add(new THREE.CapsuleGeometry(0.108, 0.05, 4, 12), WHITE, { p: [0, -0.06, 0] });
+    sb.add(new THREE.CylinderGeometry(0.122, 0.128, 0.07, 16), ORANGE, { p: [0, -0.15, 0] });
+    sb.add(new THREE.SphereGeometry(0.135, 14, 8), WHITE, { p: [0, -0.245, 0.045], s: [1, 0.62, 1.42] });
+    sb.add(new THREE.CylinderGeometry(0.137, 0.137, 0.05, 18), SUIT.sole, { p: [0, -0.305, 0.045], s: [1, 1, 1.42] });
+    const shinGeo = sb.build();
+    for (const sx of [-1, 1]) {
+        const l = new THREE.Group();
+        l.position.set(sx * 0.145, 0, 0);
+        pelvis.add(l);
+        mk(thighGeo, l);
+        const s = new THREE.Group();
+        s.position.set(0, -THIGH, 0);
+        l.add(s);
+        mk(shinGeo, s);
+        legs.push(l);
+        shins.push(s);
+    }
+
     const astro = {
         root, body, head, arms, legs, phase: 0, walk: 0, wave: 0, sit: 0, float: 0,
         animate(dt) {
             this.phase += dt * 8;
             const s = Math.sin(this.phase) * this.walk;
-            legs[0].rotation.x = s * 0.6 - this.sit * 1.4;
-            legs[1].rotation.x = -s * 0.6 - this.sit * 1.4;
+            // sit: thighs forward, shins straight down, hips lowered so the feet stay where they were
+            const th = this.sit * 1.45;
+            legs[0].rotation.x = s * 0.6 - th;
+            legs[1].rotation.x = -s * 0.6 - th;
+            legs[0].rotation.z = -this.float * 0.14;
+            legs[1].rotation.z = this.float * 0.14;
+            for (let i = 0; i < 2; i++) {
+                const lift = Math.max(0, Math.cos(this.phase + i * Math.PI)) * this.walk * 0.7; // knee bends as the leg swings through
+                shins[i].rotation.x = th + lift + this.float * 0.35;
+            }
             arms[0].rotation.x = -s * 0.5 - this.float * 0.4;
             arms[1].rotation.x = s * 0.5 - this.float * 0.4;
-            arms[0].rotation.z = -0.15 - this.float * 0.9;
-            arms[1].rotation.z = 0.15 + this.float * 0.9;
-            if (this.wave > 0) {
-                arms[1].rotation.z = 0.15 + this.wave * 2.6 + Math.sin(this.phase * 1.5) * 0.3 * this.wave;
+            arms[0].rotation.z = -0.2 - this.float * 0.9;
+            arms[1].rotation.z = 0.2 + this.float * 0.9;
+            if (this.wave > 0) { // out to the side and up, clear of the big helmet
+                arms[1].rotation.z = 0.2 + this.wave * 2.0 + Math.sin(this.phase * 1.5) * 0.35 * this.wave;
+                arms[1].rotation.x -= this.wave * 0.35;
             }
-            body.position.y = Math.abs(Math.sin(this.phase)) * 0.05 * this.walk;
+            const hip = HIP - THIGH * (1 - Math.cos(th)) + Math.abs(Math.sin(this.phase)) * 0.05 * this.walk;
+            body.position.y = pelvis.position.y = hip;
         },
     };
+    astro.animate(0);
+    astro.phase = 0;
     return astro;
 }
 

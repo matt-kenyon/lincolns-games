@@ -58,6 +58,7 @@ node grid.mjs out/sheet.png 3 out/c4_reveal.png out/c5_pull.png out/c6_press.png
 | `rooms.json` | One screenshot of every mothership room |
 | `finale.json` | Screenshots of the escape pod ending and the end screen |
 | `perf.json` | Draw calls and triangles in each area of both levels |
+| `astronaut.json` | Lincoln (the hero) in every cutscene shot he's in, plus a turntable of the model and his poses (`turntable.js`), and the first-person glove + blaster on Mars and the mothership. `turntable.js` also has `gunViews()`, the blaster from four angles |
 
 ## Writing a test
 

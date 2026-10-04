@@ -217,7 +217,7 @@ export function captureShots(c, ctx) {
                 seat.rotation.y = Math.PI;
                 cp.add(seat);
                 astro = createAstronaut();
-                astro.root.position.set(0, -0.3, 0.06);
+                astro.root.position.set(0, 0.22, -0.15); // hips on the front of the cushion, boots dangling
                 astro.root.rotation.y = Math.PI;
                 astro.sit = 1;
                 cp.add(astro.root);
@@ -282,9 +282,9 @@ export function captureShots(c, ctx) {
                 if (t > 6.2 && !S.capt3) { S.capt3 = true; c.caption('Time to GO!', ''); }
                 // cameras: Lincoln's face, over his shoulder at the button, then his face again
                 if (t < 2.2 || t >= 5.6) {
-                    c.lookFrom(L(0.4, 1.46, -1.36), L(0.02, 1.16, 0.15));
+                    c.lookFrom(L(0.42, 1.86, -1.85), L(0.03, 1.26, -0.1));
                 } else {
-                    c.lookFrom(L(0.8, 2.15, 0.0), cockpit.box.localToWorld(V(-0.1, 0.06, -0.04)));
+                    c.lookFrom(L(1.1, 1.95, -0.3), cockpit.box.localToWorld(V(0.12, 0.08, -0.06)));
                 }
                 if (t > 8.1 && !S.flashed) { S.flashed = true; c.fadeTo(1, 0.4); }
             },
