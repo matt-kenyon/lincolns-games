@@ -62,15 +62,19 @@ export function captureShots(c, ctx) {
     const ship = ctx.ship;
     const heading = new THREE.Vector3();
     const msPos = new THREE.Vector3();
-    let ms = null, beam = null, mouth = new THREE.Vector3(), emitter = new THREE.Vector3();
+    // built now (the screen is black while the outro is set up), so the whip-round doesn't stop to build them
+    const ms = createMothership();
+    const beam = createTractorBeam(3.2, 5.4);
+    let msPlaced = false;
+    const mouth = new THREE.Vector3(), emitter = new THREE.Vector3();
     let speed = 12;
     const greenLight = c.greenLight;
     const camPos = new THREE.Vector3();
     const camLook = new THREE.Vector3();
 
     const setupMothership = () => {
-        if (ms) return;
-        ms = createMothership();
+        if (msPlaced) return;
+        msPlaced = true;
         // looming up behind the ship, heading the same way (it was chasing us!)
         const sp0 = ship.root.position;
         msPos.copy(sp0).addScaledVector(heading, -190).add(V(0, 30, 0));
@@ -82,7 +86,6 @@ export function captureShots(c, ctx) {
         ms.localToWorld(mouth);
         emitter.copy(ms.userData.emitter);
         ms.localToWorld(emitter);
-        beam = createTractorBeam(3.2, 5.4);
         c.addActor(beam, sp);
         greenLight.position.copy(emitter);
     };
@@ -94,6 +97,8 @@ export function captureShots(c, ctx) {
         // 4 — "grrr"... the ship lurches and stops
         {
             dur: 5.6,
+            blend: 1.2, // the same chase camera as the shot before: settle into place, don't jump
+            anchor: () => ship.root.position,
             start: () => {
                 heading.copy(ctx.vel).normalize();
                 speed = ctx.vel.length();
@@ -132,7 +137,7 @@ export function captureShots(c, ctx) {
         // 5 — whip around: an ALIEN MOTHERSHIP has us in its tractor beam!
         {
             dur: 6.4,
-            fov: 60,
+            fov: 55, // widens to 60 during the whip
             start: () => {
                 S.grr = S.lurched = S.saidHuh = S.grr2 = false;
                 setupMothership();
@@ -150,6 +155,8 @@ export function captureShots(c, ctx) {
                 aimNose(s, heading);
                 s.rotateZ(Math.sin(t * 29) * 0.02);
                 aimBeam(beam, p, emitter);
+                // the whip starts inside the beam: switch it on as the camera swings clear (no green flash)
+                beam.material.uniforms.uOn.value = clamp((t - 0.3) / 0.35, 0, 1);
                 greenLight.position.copy(p).addScaledVector(heading, -12).add(V(0, 4, 0));
                 greenLight.intensity = 80;
                 // whip around from behind the ship to low in front of it, looking back... and UP
@@ -157,12 +164,15 @@ export function captureShots(c, ctx) {
                 const ang = lerp(Math.PI, 0.6, k);
                 const side = V(-heading.z, 0, heading.x);
                 const r = lerp(13, 34, k) - Math.max(0, t - 0.8) * 0.8;
+                // (it starts exactly where the last shot's camera was: 1.5 to the side, looking 0.6 up)
                 camPos.copy(p)
                     .addScaledVector(heading, Math.cos(ang) * r)
                     .addScaledVector(side, Math.sin(ang) * r)
-                    .add(V(0, lerp(3.4, 0, k), 0));
-                camLook.copy(p).addScaledVector(heading, 8 * (1 - k)).lerp(_v.copy(p).lerp(msPos, 0.42), k);
+                    .add(V(1.5 * (1 - k), lerp(3.4, 0, k), 0));
+                camLook.copy(p).addScaledVector(heading, 8 * (1 - k)).add(V(0, 0.6 * (1 - k), 0)).lerp(_v.copy(p).lerp(msPos, 0.42), k);
                 c.lookFrom(camPos, camLook);
+                c.camera.fov = lerp(55, 60, k);
+                c.camera.updateProjectionMatrix();
                 if (t < 0.75) c.speedLines(dt, 120);
                 if (t > 0.9 && !S.capt1) { S.capt1 = true; c.caption('AN ALIEN MOTHERSHIP!!', 'big'); c.shake = 0.15; }
                 if (t > 3.4 && !S.capt2) { S.capt2 = true; c.caption('We\'re caught in its TRACTOR BEAM!', 'alarm'); }
@@ -464,15 +474,17 @@ export function captureShots(c, ctx) {
             world: true,
             dur: 5.4,
             fov: 52,
+            blend: 1.2, // carry on from the last shot's camera instead of jumping to a new spot
             start: () => {
                 S.camLook = null;
                 S.capt4 = false;
                 A.setMusic('ship');
                 c.caption('Now I\'m stuck inside an ALIEN MOTHERSHIP...\nI\'ve got to find an ESCAPE POD!', '');
-                setTimeout(() => !c.done && showCard('level-card', true), 600);
-                setTimeout(() => showCard('level-card', false), 4300);
             },
             update: (t, dt) => {
+                showCard('level-card', t > 0.6 && t < 4.3); // on the cutscene's own clock
+                c.camera.fov = lerp(55, 52, easeInOut(clamp(t / 1.2, 0, 1)));
+                c.camera.updateProjectionMatrix();
                 const L = S.hastro;
                 L.sit = damp(L.sit, 0, 5, dt);
                 L.head.rotation.y = Math.sin(t * 1.3) * 0.5 * Math.max(0, 1 - t / 3);
@@ -606,10 +618,10 @@ export function bossIntroShots(c, boss) {
                 A.setMusic('boss2');
                 $('boss-card').querySelector('.bc-small').textContent = boss.title;
                 $('boss-card').querySelector('.bc-big').textContent = boss.name;
-                setTimeout(() => !c.done && showCard('boss-card', true), 450);
                 g.audio.play('titleSting');
             },
             update: (t, dt) => {
+                showCard('boss-card', t > 0.45 && t < 4.6); // on the cutscene's own clock
                 boss.mouth = t < 0.25 ? t / 0.25 : t < 2.2 ? 1 : Math.max(0, 1 - (t - 2.2) / 0.5);
                 boss.lookTarget.copy(c.camera.position);
                 boss.update(dt);
@@ -622,7 +634,6 @@ export function bossIntroShots(c, boss) {
                 const side = V(-d.z, 0, d.x);
                 const cam = V(C.x, 0, C.z).addScaledVector(d, lerp(12, 19, easeOut(clamp(t / 1.5, 0, 1)))).addScaledVector(side, 3).add(V(0, 2.2, 0));
                 c.lookFrom(cam, V(C.x, 4.2, C.z));
-                if (t > 4.6) showCard('boss-card', false);
             },
         },
     ];
@@ -835,6 +846,7 @@ export function finaleShots(c) {
                 flag.scale.setScalar(0.01);
                 c.actors.push(astro.root, flag);
                 S.landedM = false;
+                S.lookUp = 1.1; // the camera looks a little above the pad until the pod lands
                 A.engine(0.6);
                 c.caption('', '');
             },
@@ -883,7 +895,8 @@ export function finaleShots(c) {
                 astro.animate(dt);
                 c.moonEarth.rotation.y += dt * 0.05;
                 const camT = clamp(t / 10.5, 0, 1);
-                c.lookFrom(V(7 - camT * 2, 2.6 + camT * 1.2, -2 + camT * 4), V(-1, 2.2 + (S.landedM ? 0 : 1.1), -15));
+                S.lookUp = damp(S.lookUp, S.landedM ? 0 : 1.1, 4, dt);
+                c.lookFrom(V(7 - camT * 2, 2.6 + camT * 1.2, -2 + camT * 4), V(-1, 2.2 + S.lookUp, -15));
             },
         },
         // 6 — THE END
@@ -897,15 +910,15 @@ export function finaleShots(c) {
                 astro.animate(dt);
                 flag.cloth.rotation.y = Math.sin(t * 1.5) * 0.1;
                 const k = easeInOut(clamp(t / 4.5, 0, 1));
-                c.lookFrom(V(5 - k * 2, 3.8 + k * 10, 2 + k * 14), V(-1, 2.2 + k * 6, -16));
+                c.lookFrom(V(5 - k * 2, 3.8 + k * 10, 2 + k * 14), V(-1, 2.2 + k * 6, -15 - k));
                 if (t > 3.8 && !S.fading) { S.fading = true; c.fadeTo(1, 0.6); }
             },
         },
     ];
 }
 
-// A few domes, a landing pad and an antenna: the Moon base (made once)
-function buildMoonBase(c) {
+// A few domes, a landing pad and an antenna: the Moon base (made once, with the space scene)
+export function buildMoonBase(c) {
     if (c.moonDomes) return;
     const b = new GeoBuilder();
     const H = (x, z) => c.moonH(x, z);

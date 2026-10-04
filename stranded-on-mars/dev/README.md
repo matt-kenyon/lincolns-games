@@ -34,6 +34,7 @@ npx playwright install chromium  # downloads the test browser
    BROWSER=webkit node run.mjs tests/full.json  # Safari's engine (needs `npx playwright install webkit` once)
    BROWSER=chrome node run.mjs tests/full.json  # the Google Chrome installed on this Mac
    BROWSER=webkit node fps.mjs                  # real frame rate in every area, MacBook-sized window at 2x
+   BROWSER=chrome node cutscene-fps.mjs         # every cutscene in real time: slow frames per shot (see below)
    ```
 
 Each `eval` step prints its result, so a test reads like a log. The run ends with `OK, no errors` or a count of
@@ -86,6 +87,21 @@ game's debug helpers on `window.game` (they are listed in `../CLAUDE.md`). For e
 `dev/soundboard.html` plays every sound effect old (synthesized) and new (recorded file) side by side, every music
 mode in new and classic versions, and the loops. Open http://localhost:8765/stranded-on-mars/dev/soundboard.html
 with the server running. The file lists are in `../js/sounds.js`.
+
+## Cutscene frame timing (`cutscene-fps.mjs`)
+
+`BROWSER=chrome|webkit node cutscene-fps.mjs [intro] [outro] [boss] [finale]` (default: all four) plays each cutscene
+in real time from its start, in a freshly launched browser (so no shader is cached from an earlier run), in a
+MacBook-sized window at 2x with the game's normal adaptive quality. Every frame is timed with
+`requestAnimationFrame` and tagged with the shot and the time into the shot. Per shot it prints the frame rate, the
+frames slower than 25 ms (`SPIKE=` to change), the worst frame, the number of compiled shader programs before and
+after the shot (a jump means a shader compiled mid-shot, which is a stutter) and the resolution scale (a change means
+the canvas was resized mid-shot). It then lists every slow frame (`s5@0.6 167ms(work 5.5)` = shot 5, 0.6 s in, a
+167 ms frame of which 5.5 ms was the game's own frame code) and every camera jump: a frame that moves the camera
+(without the shake) much further than the frames around it, and the jump at each shot change (a cut is fine; a
+continuous move that jumps reads as a stutter). `RUNS=2` repeats each cutscene, because one-off slow frames come and
+go between runs. Raw frames are saved to `out/cutscene-<browser>-<name>.json`. Run one browser at a time and close
+heavy apps first.
 
 ## Notes
 

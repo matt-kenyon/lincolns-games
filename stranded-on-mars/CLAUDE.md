@@ -89,7 +89,10 @@ Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.lev
   which ends in level 2's capture. `cutscenes2.js` has the level 2 shots: the capture, GLORBAX's entrance and the
   finale. A shot is `{dur, fov, world, start(), update(t, dt)}`. `world: true` renders the current stage's scene
   instead of space. Each cutscene function keeps its private flags in its own `const S = {}`. Don't put shot state
-  on the shared Cinematics object (a stale flag crashed the outro once).
+  on the shared Cinematics object (a stale flag crashed the outro once). A shot that continues the previous shot's
+  camera move adds `blend: secs` (ease in from where the last shot left the camera) and, if the camera follows
+  something moving, `anchor: () => vec`. Time everything in a shot with its `t` (never `setTimeout`) and scale
+  per-frame motion by `dt`, so fast-forwarded tests and 120 Hz screens see the same thing.
 - **Toon look** (`toon.js`): `toonMaterial()` (MeshToonMaterial plus shader patches for rim light, paint noise,
   plant sway, a glowing vertex attribute and hex floors), `addOutline()` (inverted-hull ink lines), `glowSprite()`.
   `GeoBuilder` merges many primitives into one vertex-colored mesh. **Gotcha:** a color callback receives vertex
@@ -111,6 +114,11 @@ Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.lev
 - **Lights:** adding or removing a light makes three.js recompile every shader (a visible stutter). Cutscenes reuse
   spare lights that always exist in the space scene (`c.greenLight`, `c.redLight`, `c.sun`). Move them or change
   their intensity rather than adding new ones. Put `c.sun` back to `c.sunHome` afterwards.
+- **Shader warm-up:** the first time a new kind of material is drawn in a scene, three.js compiles a shader and the
+  GPU links it on first use: a 0.1-0.4 s freeze on a Mac. Everything the cutscenes show is compiled and linked up
+  front (`Cinematics.warmUp()` at boot, `warmShip()` when the mothership is built). If you add a new kind of prop or
+  material to a cutscene, add a throwaway copy to those lists, then check `dev/cutscene-fps.mjs` shows no `+N`
+  programs during any shot. Build big props before the cutscene starts, not in a shot's `start()`.
 - **Saves** are in localStorage, key `strandedOnMars.save.v1`. Mars format:
   `{v:1, diff, cp, have, gates, dome, captain, stats}`. Level 2 format: `{v:1, stage:2, diff, cp, cleared, bossSeen,
   boss, stats}`. Settings: `strandedOnMars.settings`.

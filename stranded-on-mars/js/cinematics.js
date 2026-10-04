@@ -9,15 +9,19 @@ import { buildShip } from './ship.js';
 import { createAlienModel } from './aliens.js';
 import { Effects } from './effects.js';
 import {
-    createAstronaut, createSeat, createParachute, createPlanet, createStars, createNebula,
+    createAstronaut, createSeat, createParachute, createPlanet, createStars, createNebula, createFlag,
 } from './models.js';
+import { createMothership, createTractorBeam, createCockpit, createEscapePod } from './shipmodels.js';
 import { SHIP, START } from './layout.js';
 import { GeoBuilder, toonMaterial, glowSprite } from './toon.js';
-import { captureShots, bossIntroShots, finaleShots } from './cutscenes2.js';
+import { captureShots, bossIntroShots, finaleShots, buildMoonBase } from './cutscenes2.js';
 import { clamp, lerp, easeInOut, easeOut, easeIn, rand, makeRng, perlin2, fbm2, damp } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const _bp = new THREE.Vector3();
+const _bt = new THREE.Vector3();
+const _sl = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
 
 function bezier(p0, p1, p2, p3, u, out) {
     const a = (1 - u) ** 3, b = 3 * u * (1 - u) ** 2, c = 3 * u * u * (1 - u), d = u ** 3;
@@ -45,8 +49,50 @@ export class Cinematics {
         this.capEl = $('caption');
         this.worldShot = false;
         this.focus = new THREE.Vector3();
+        this.lastPos = new THREE.Vector3();  // the camera's last pose (before shake)
+        this.lastLook = new THREE.Vector3();
+        this.fromPos = new THREE.Vector3();  // ...and where the previous shot left it (see `blend`)
+        this.fromLook = new THREE.Vector3();
         this.shake = 0;
         this.actors = [];
+    }
+
+    // --------------------------------------------------------
+    // Shader warm-up. The first time three.js draws a new kind of material in a scene it compiles a
+    // shader, and the GPU finishes linking it when it's first used: a long frame (up to ~0.4s on a
+    // Mac) in the middle of a shot. So compile everything the cutscenes will show up front, behind
+    // the loading screen or a black screen: the scene itself plus throwaway copies of the props that
+    // shots add later (compiled with that scene's lights; the shaders stay cached).
+    // --------------------------------------------------------
+    warm(scene, props = []) {
+        const r = this.game.renderer;
+        r.compile(scene, this.camera);
+        if (props.length) {
+            const tmp = new THREE.Group();
+            for (const p of props) tmp.add(p.root || p);
+            r.compile(tmp, this.camera, scene);
+        }
+        for (const p of r.info.programs) p.getUniforms(); // wait for the GPU to link them now, not mid-shot
+    }
+
+    // At boot: Mars with the intro's props, and the space scene with everything the cutscenes fly through
+    warmUp() {
+        const g = this.game;
+        this.buildSpace();
+        const flare = () => { // the big explosion glows ignore fog
+            const s = glowSprite(0xffc070, 1, 1);
+            s.material.fog = false;
+            return s;
+        };
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), new THREE.MeshBasicMaterial({ color: 0xa8faff }));
+        this.warm(g.scene, [buildShip(), createAstronaut(), createSeat(), createParachute(), createAlienModel('captain'), orb, flare()]);
+        const fire = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff7a30, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+        this.warm(this.space, [buildShip(), createMothership(), createTractorBeam(), createCockpit(), createSeat(), createAstronaut(), createEscapePod(), createFlag('LINCOLN'), fire, flare()]);
+    }
+
+    // When the mothership level is built (behind a black screen): the hangar's props
+    warmShip(scene) {
+        this.warm(scene, [buildShip(), createTractorBeam(), createAstronaut(), createSeat()]);
     }
 
     // --------------------------------------------------------
@@ -117,6 +163,7 @@ export class Cinematics {
         mb.add(this.moonEarth);
         mb.visible = false;
         s.add(mb);
+        buildMoonBase(this);
     }
 
     // --------------------------------------------------------
@@ -138,6 +185,13 @@ export class Cinematics {
         if (this.idx >= this.shots.length) return this.finish();
         this.t = 0;
         const shot = this.shots[this.idx];
+        // remember where the last shot left the camera (relative to `anchor`, if the shot follows something)
+        this.fromPos.copy(this.lastPos);
+        this.fromLook.copy(this.lastLook);
+        if (shot.anchor) {
+            this.fromPos.sub(shot.anchor());
+            this.fromLook.sub(shot.anchor());
+        }
         this.worldShot = !!shot.world;
         this.camera.fov = shot.fov || 55;
         this.camera.updateProjectionMatrix();
@@ -206,7 +260,24 @@ export class Cinematics {
         return obj;
     }
 
+    // A shot with `blend: secs` eases in from where the previous shot left the camera, so a move that
+    // carries on across two shots doesn't jump. With `anchor: () => vec`, that's measured relative to
+    // something moving (the ship), so the camera keeps up with it while it blends.
     lookFrom(pos, target) {
+        const sh = this.shots && this.shots[this.idx];
+        if (sh && sh.blend && this.t < sh.blend) {
+            const k = easeInOut(this.t / sh.blend);
+            _bp.copy(this.fromPos);
+            _bt.copy(this.fromLook);
+            if (sh.anchor) {
+                _bp.add(sh.anchor());
+                _bt.add(sh.anchor());
+            }
+            pos = _bp.lerp(pos, k);
+            target = _bt.lerp(target, k);
+        }
+        this.lastPos.copy(pos);
+        this.lastLook.copy(target);
         this.camera.position.copy(pos);
         if (this.shake > 0) {
             this.camera.position.x += rand(-1, 1) * this.shake;
@@ -219,15 +290,15 @@ export class Cinematics {
 
     speedLines(dt, rate = 60) {
         const cam = this.camera;
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+        const [fwd, right, up, p] = _sl;
+        fwd.set(0, 0, -1).applyQuaternion(cam.quaternion);
+        right.set(1, 0, 0).applyQuaternion(cam.quaternion);
+        up.set(0, 1, 0).applyQuaternion(cam.quaternion);
         const n = Math.floor(rate * dt + Math.random());
         for (let i = 0; i < n; i++) {
             const a = Math.random() * Math.PI * 2, r = rand(6, 22);
-            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
-            const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
-            const p = cam.position.clone().addScaledVector(fwd, rand(40, 90)).addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r);
-            const v = fwd.clone().multiplyScalar(-160);
-            this.sfx.spawn({ x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z, life: 0.5, size: 0.12, color: 0xcfe8ff, alpha: 0.7, alpha1: 0, batch: 1, stretch: 0.04 });
+            p.copy(cam.position).addScaledVector(fwd, rand(40, 90)).addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r);
+            this.sfx.spawn({ x: p.x, y: p.y, z: p.z, vx: fwd.x * -160, vy: fwd.y * -160, vz: fwd.z * -160, life: 0.5, size: 0.12, color: 0xcfe8ff, alpha: 0.7, alpha1: 0, batch: 1, stretch: 0.04 });
         }
     }
 
@@ -258,7 +329,12 @@ export class Cinematics {
                 if (this.capText[now - 1] !== ' ') this.game.audio.play('typing');
             }
         }
-        if (this.t >= shot.dur) this.next();
+        if (this.t >= shot.dur) {
+            this.next();
+            // pose the new shot right away, or this frame would draw it from the old shot's camera
+            const ns = this.shots && this.shots[this.idx];
+            if (ns && ns.update) ns.update(0, 0);
+        }
     }
 
     // A huge flash you can see from far away when the ship crashes
@@ -314,7 +390,8 @@ export class Cinematics {
         const P3 = V(SHIP.x, gyShip + 3, SHIP.z);
         const FLY = 9.5;
         let flyT = 0;
-        let ejected = false, chuteOpen = false, crashed = false;
+        let ejected = false, chuteOpen = false, crashed = false, crashHeard = false;
+        let lookUp = 1.5; // shot 8: how far above Lincoln the camera looks (it settles as he lands)
         const astroVel = new THREE.Vector3();
         const gyStart = W.groundAt(START.x, START.z);
         const aliens = [];
@@ -355,7 +432,12 @@ export class Cinematics {
                 W.fireEmitter.on = true;
                 g.effects.bigBoom(P3.x, P3.y, P3.z, 4);
                 this.crashFlash();
-                setTimeout(() => { A.play('crash'); this.shake = 0.5; }, 900);
+            }
+            // the boom arrives a moment later (it's really far away)
+            if (crashed && !crashHeard && flyT > FLY + 0.9) {
+                crashHeard = true;
+                A.play('crash');
+                this.shake = 0.5;
             }
         };
         const stepAstro = (dt) => {
@@ -478,7 +560,7 @@ export class Cinematics {
                 },
                 update: (t, dt) => {
                     ship.root.position.addScaledVector(shipVel, dt);
-                    ship.root.rotation.z += Math.sin(t * 13) * 0.004;
+                    ship.root.rotation.z += Math.sin(t * 13) * 0.24 * dt;
                     this.entryFire.material.opacity = 0.35 + Math.random() * 0.25;
                     ship.setEngines(1 + Math.random(), t);
                     this.shake = 0.12;
@@ -677,8 +759,7 @@ export class Cinematics {
                     chute.position.copy(astro.root.position);
                     astroVel.set(0.4, -4.6, -0.6);
                     this.landed = false;
-                    setTimeout(() => !this.done && $('title-card').classList.add('on'), 700);
-                    setTimeout(() => $('title-card').classList.remove('on'), 4800);
+                    lookUp = 1.5;
                 },
                 update: (t, dt) => {
                     const a = astro.root.position;
@@ -704,7 +785,11 @@ export class Cinematics {
                         this.caption('Find the missing pieces of your ship... and get back home!', '');
                     }
                     if (t > 6.3 && !this.fading) { this.fading = true; this.fadeTo(1, 0.6); }
-                    this.lookFrom(V(START.x + 5, gyStart + 1.6, START.z - 9), V(a.x, a.y + 1.6 + (this.landed ? 0 : 1.5), a.z));
+                    // the title card, on the cutscene's own clock
+                    $('title-card').classList.toggle('on', t > 0.7 && t < 4.8);
+                    lookUp = damp(lookUp, this.landed ? 0 : 1.5, 5, dt);
+                    // (the camera stands a little left of the crashed seat, so the seat doesn't block the shot)
+                    this.lookFrom(V(START.x + 1, gyStart + 1.6, START.z - 9), V(a.x, a.y + 1.6 + lookUp, a.z));
                 },
             },
         ];
@@ -855,7 +940,7 @@ export class Cinematics {
                 update: (t, dt) => {
                     oShip.root.position.addScaledVector(vel, dt);
                     oShip.setEngines(2.2, t);
-                    oShip.root.rotateZ(Math.sin(t * 2) * 0.004);
+                    oShip.root.rotateZ(Math.sin(t * 2) * 0.24 * dt);
                     const p = oShip.root.position;
                     this.lookFrom(V(p.x + 6 - t * 0.5, p.y + 2.5, p.z + 12), p.clone().addScaledVector(vel, 0.8));
                     this.speedLines(dt, 50);

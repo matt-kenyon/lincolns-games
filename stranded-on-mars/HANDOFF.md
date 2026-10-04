@@ -86,6 +86,10 @@ look sensitivity, invert, volume).
 3. Level 2 (commit `230fc25`): engine refactor into stages; the mothership; waves; GLORBAX; cutscenes; sounds and
    music; drops; saves and CONTINUE.
 4. Chapter select (commit `d0792f0`), then `?v=5` (`8fa5ee5`).
+5. Smoother cutscenes (October 2026, after Matt saw stutter on the Mac): shaders for everything the cutscenes show
+   are compiled and linked behind the loading/black screens, the space scene and the mothership are built before
+   they're needed, shot changes no longer jump, cards and captions run on the cutscene's own clock, and quality is
+   pinned during cutscenes. Measure with `dev/cutscene-fps.mjs`.
 
 Decisions and fixes worth knowing about:
 - The mothership was retuned for the reveal: lit from the front (the space sun moves for the capture shots), given a
@@ -116,8 +120,6 @@ A real kid aims worse, so expect 1.5-3 minutes. If Lincoln finds it too hard or 
   (35-420 depending on the room), so it should run at least as well as Mars.
 - The over-the-shoulder shot of the self-destruct button has Lincoln's helmet filling the left third of the frame.
   It's fine, but the framing could be nicer.
-- The level 2 title card and a few cutscene captions use real-time `setTimeout`s. That's fine when playing, but
-  fast-forwarded test screenshots can miss them.
 - Touch devices aren't supported (keyboard/mouse or gamepad only).
 - No automated tests run in CI. The `dev/` tests are run by hand.
 

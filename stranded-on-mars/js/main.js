@@ -89,8 +89,11 @@ class Game {
         this.hud.buildMinimap();
         await nextFrame();
         progress(0.97, 'Compiling shaders...');
-        // warm up shaders so the first real frame doesn't hitch
+        // warm up shaders so the first real frame doesn't hitch: Mars, the first-person view, and
+        // the cutscenes (their space scene and everything they bring in later)
         this.renderer.compile(this.scene, this.camera);
+        this.renderer.compile(this.player.vm.scene, this.player.vm.camera);
+        this.cine.warmUp();
         await nextFrame();
         progress(1, 'Ready!');
         this.bindUI();
@@ -218,6 +221,7 @@ class Game {
         this.effects = new Effects(this.scene);
         this.world = new Mothership(this);
         this.world.build();
+        this.world.mapImage(); // (draw the minimap now, behind the black screen; it's cached)
         this.aliens = new AlienManager(this, SHIP_ZONES);
         this.aliens.build();
         this.combat = new Combat(this);
@@ -227,7 +231,7 @@ class Game {
         this.stages.ship = st;
         // warm up the new shaders now so the first frames don't stutter
         this.useStage(st);
-        this.renderer.compile(st.scene, this.camera);
+        this.cine.warmShip(st.scene);
         this.useStage(prev);
         return st;
     }
@@ -709,6 +713,11 @@ class Game {
     adaptQuality(dt) {
         if (this.fixedQuality || this.state === 'loading') return;
         const P = this.perf;
+        // never resize in the middle of a cutscene (it's a visible hitch); measure afresh afterwards
+        if (this.state === 'intro' || this.state === 'outro' || this.state === 'cine' || this.state === 'repair') {
+            P.acc = 0; P.n = 0; P.t = 0;
+            return;
+        }
         P.acc += dt;
         P.n++;
         P.t += dt;

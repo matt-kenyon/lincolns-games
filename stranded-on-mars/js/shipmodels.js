@@ -351,9 +351,14 @@ export function screenTexture() {
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     const ctx = c.getContext('2d');
+    let shown = '';
     return {
         tex,
         draw(mode, n = 10, blink = false) {
+            // (called every frame: only redraw and re-upload the texture when something changed)
+            const key = mode + n + blink;
+            if (key === shown) return;
+            shown = key;
             ctx.fillStyle = mode === 'count' ? (blink ? '#5a0a14' : '#2a0610') : '#081a2a';
             ctx.fillRect(0, 0, 256, 160);
             ctx.textAlign = 'center';
