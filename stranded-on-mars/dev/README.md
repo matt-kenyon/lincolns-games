@@ -31,6 +31,9 @@ npx playwright install chromium  # downloads the test browser
    node run.mjs tests/full.json      # whole game, both levels, in about 2 minutes
    npm test                          # full + regress + chapters
    HEADED=1 node run.mjs tests/chapters.json   # watch it run in a visible window
+   BROWSER=webkit node run.mjs tests/full.json  # Safari's engine (needs `npx playwright install webkit` once)
+   BROWSER=chrome node run.mjs tests/full.json  # the Google Chrome installed on this Mac
+   BROWSER=webkit node fps.mjs                  # real frame rate in every area, MacBook-sized window at 2x
    ```
 
 Each `eval` step prints its result, so a test reads like a log. The run ends with `OK, no errors` or a count of
@@ -65,6 +68,9 @@ game's debug helpers on `window.game` (they are listed in `../CLAUDE.md`). For e
 
 ## Notes
 
+- On a Mac both Chrome and WebKit render on the real GPU (an M1 Pro: about 60 fps in every area at 1512x945, 2x,
+  checked October 2026). Close other heavy apps before `fps.mjs`, because anything else using the machine shows up as
+  slow frames.
 - On Linux (cloud containers) the runner uses the SwiftShader software renderer, which is very slow (a frame can
   take a second). Waits in the tests are generous for that reason. On a Mac with a GPU everything runs much faster.
 - Quality: `&quality=low` / `&quality=high` in the URL pins the resolution so screenshots are repeatable.

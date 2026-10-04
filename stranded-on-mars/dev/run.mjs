@@ -11,10 +11,11 @@
 //   {"key": "KeyW", "hold": 200}                     press (and hold) a key
 //   {"click": "#btn-start"}                          click an element
 //   {"shot": "name.png"}                             save a screenshot into dev/out/
-// Environment: BASE_URL (default http://localhost:8765), HEADED=1 to watch it run.
+// Environment: BASE_URL (default http://localhost:8765), HEADED=1 to watch it run,
+// BROWSER=chrome (the installed Google Chrome) or BROWSER=webkit (Safari's engine). Default: Playwright's Chromium.
 // The game exposes window.game; game.debug has helpers (see CLAUDE.md).
 // ============================================================
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -33,7 +34,10 @@ const steps = JSON.parse(fs.readFileSync(file, 'utf8'));
 // Linux containers have no GPU: use the SwiftShader software renderer there.
 const args = ['--autoplay-policy=no-user-gesture-required'];
 if (process.platform === 'linux') args.push('--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist');
-const browser = await chromium.launch({ headless: !process.env.HEADED, args });
+const which = process.env.BROWSER || 'chromium';
+const browser = which === 'webkit'
+    ? await webkit.launch({ headless: !process.env.HEADED })
+    : await chromium.launch({ headless: !process.env.HEADED, args, channel: which === 'chrome' ? 'chrome' : undefined });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const logs = [];
 let errors = 0;
