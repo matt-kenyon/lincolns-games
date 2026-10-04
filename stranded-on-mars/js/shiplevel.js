@@ -338,9 +338,9 @@ export class ShipLevel {
         const fighting = g.aliens.anyInCombat();
         if (fighting) this.combatT = 5;
         else this.combatT -= dt;
-        let music = this.combatT > 0 ? 'combat' : 'ship';
+        let music = this.combatT > 0 ? 'shipCombat' : 'ship';
         if (this.boss.active) music = 'boss2';
-        else if (this.bossDown) music = 'combat';
+        else if (this.bossDown) music = 'shipCombat';
         g.audio.setMusic(music);
 
         // ----- hints -----

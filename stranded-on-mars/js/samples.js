@@ -2,12 +2,12 @@
 // SAMPLES — recorded sound effects and layered music from files
 //  - SampleBank loads and decodes audio/*.mp3 (MP3 decodes to the exact
 //    length in Chrome and Safari, so loops are gapless)
-//  - StemMusic plays a song as stems that start together and loop in sync;
-//    each music mode fades its own set of layers in and the rest out
+//  - StemMusic plays a song as stems that start together and loop in sync,
+//    and fades layers in and out as the music mode changes
 // The file lists live in sounds.js.
 // ============================================================
 
-import { SFX_FILES, MUSIC, MODES, AUDIO_V } from './sounds.js';
+import { SFX_FILES, LOOP_FILES, MUSIC, AUDIO_V } from './sounds.js';
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
@@ -46,7 +46,31 @@ export class SampleBank {
     }
 
     loadAllSfx() {
-        for (const k in SFX_FILES) for (const f of SFX_FILES[k].files) this.load('sfx/' + f);
+        const all = [];
+        for (const list of [SFX_FILES, LOOP_FILES]) for (const k in list) for (const f of list[k].files) all.push(this.load('sfx/' + f));
+        return Promise.all(all);
+    }
+
+    loopReady(name) {
+        const e = LOOP_FILES[name];
+        return !!e && e.files.every((f) => this.buffers.has('sfx/' + f));
+    }
+
+    // Start looping file `i` of a LOOP_FILES sound into `out`, silent; the caller fades `g` up to `gain`
+    loop(name, out, i = 0) {
+        const e = LOOP_FILES[name];
+        const buf = e && this.buffers.get('sfx/' + e.files[i]);
+        if (!buf) return null;
+        const ctx = this.A.ctx;
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.loop = true;
+        const g = ctx.createGain();
+        g.gain.value = 0;
+        src.connect(g);
+        g.connect(out);
+        src.start();
+        return { src, g, gain: e.gain ?? 1 };
     }
 
     // Play a recorded effect into `out` at time t. Returns its length in seconds, or 0 if it isn't loaded.
@@ -83,7 +107,7 @@ export class StemMusic {
     constructor(A, bank) {
         this.A = A;
         this.bank = bank;
-        this.mode = 'none';
+        this.def = null;
         this.cur = null;
     }
 
@@ -104,26 +128,26 @@ export class StemMusic {
         return this.stemPaths(song).some((p) => this.bank.failed.has(p));
     }
 
-    setMode(mode) {
-        this.mode = mode;
-        const m = MODES[mode];
-        if (!m) {
+    // def: { song, layers: { layer: gain } } from a music set, or null for silence
+    play(def) {
+        this.def = def;
+        if (!def) {
             this.stopSong();
             return;
         }
-        if (!this.cur || this.cur.name !== m.song) {
+        if (!this.cur || this.cur.name !== def.song) {
             this.stopSong();
-            if (!this.ready(m.song)) {
-                if (this.broken(m.song)) return;
+            if (!this.ready(def.song)) {
+                if (this.broken(def.song)) return;
                 // start it when it has loaded, if the game still wants it
-                this.preload([m.song]).then(() => {
-                    if (this.mode === mode && !this.cur && this.ready(m.song)) this.setMode(mode);
+                this.preload([def.song]).then(() => {
+                    if (this.def === def && !this.cur && this.ready(def.song)) this.play(def);
                 });
                 return;
             }
-            this.cur = this.startSong(m.song);
+            this.cur = this.startSong(def.song);
         }
-        this.setLayers(m.layers);
+        this.setLayers(def.layers);
     }
 
     startSong(name) {
@@ -141,15 +165,16 @@ export class StemMusic {
             const src = ctx.createBufferSource();
             src.buffer = this.bank.buffers.get('music/' + file);
             // Loops carry `pad` seconds of overlap on each side (the loop's end copied before
-            // its start and vice versa), so the encoder's edges never land on the loop point
-            const pad = S.pad || 0;
+            // its start and vice versa), so the encoder's edges never land on the loop point.
+            // A song with an intro has the intro there instead, and plays it once.
+            const head = S.intro || S.pad || 0;
             if (!S.once) {
                 src.loop = true;
-                src.loopStart = pad;
-                src.loopEnd = pad + (S.loop || src.buffer.duration - 2 * pad);
+                src.loopStart = head;
+                src.loopEnd = head + (S.loop || src.buffer.duration - head - (S.pad || 0));
             }
             src.connect(g);
-            src.start(t, pad);
+            src.start(t, S.intro || S.once ? 0 : head);
             layers[layer] = { g, src, on: 0 };
         }
         return { name, bus, layers, t0: t, fadeIn: S.fadeIn ?? 0.5 };
@@ -167,6 +192,13 @@ export class StemMusic {
             L.g.gain.setTargetAtTime(v, Math.max(now, cur.t0), fresh ? cur.fadeIn : v > L.on ? 0.45 : 1.4);
             L.on = v;
         }
+    }
+
+    // Free decoded songs that aren't in `keep` (decoded audio takes a lot of memory)
+    release(keep) {
+        const wanted = new Set(keep.flatMap((s) => this.stemPaths(s)));
+        if (this.cur) for (const p of this.stemPaths(this.cur.name)) wanted.add(p);
+        for (const p of [...this.bank.buffers.keys()]) if (p.startsWith('music/') && !wanted.has(p)) this.bank.buffers.delete(p);
     }
 
     stopSong() {

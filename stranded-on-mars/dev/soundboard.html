@@ -44,7 +44,7 @@
 </main>
 <script type="module">
 import { AudioEngine, SFX } from '../js/audio.js';
-import { SFX_FILES, MODES } from '../js/sounds.js';
+import { SFX_FILES, MUSIC_SETS } from '../js/sounds.js';
 
 const A = new AudioEngine();
 const $ = (id) => document.getElementById(id);
@@ -66,23 +66,32 @@ $('start').addEventListener('click', () => {
 });
 
 function build() {
-    // ---- music modes ----
-    const modes = ['title', 'intro', 'explore', 'combat', 'boss', 'ship', 'boss2', 'theme'];
+    // ---- music: one row per set, plus the classic synth music ----
+    const modes = ['title', 'intro', 'explore', 'combat', 'boss', 'ship', 'shipCombat', 'boss2', 'theme'];
     const box = $('modes');
     const all = [];
-    const play = (mode, classic, b) => {
-        A.setClassicMusic(classic);
+    const play = (set, mode, b) => {
+        A.setClassicMusic(set === 'classic');
+        if (set !== 'classic') A.musicSet = set;
         A.mode = '';
         A.setMusic(mode);
         all.forEach((x) => x.classList.remove('on'));
         b.classList.add('on');
     };
-    for (const m of modes) {
-        const n = btn(m + ' (new)', '', () => play(m, false, n));
-        n.disabled = !MODES[m];
-        const o = btn(m + ' (old)', 'old', () => play(m, true, o));
-        all.push(n, o);
-        box.append(n, o);
+    for (const set of [...Object.keys(MUSIC_SETS), 'classic']) {
+        const row = document.createElement('div');
+        row.className = 'layers';
+        const name = document.createElement('span');
+        name.className = 'meter';
+        name.textContent = set;
+        row.append(name);
+        for (const m of modes) {
+            const b = btn(m, set === 'classic' ? 'old' : '', () => play(set, m, b));
+            if (set !== 'classic') b.disabled = !MUSIC_SETS[set][m];
+            all.push(b);
+            row.append(b);
+        }
+        box.append(row);
     }
     box.append(btn('stop', 'old', () => { A.mode = ''; A.setMusic('none'); all.forEach((x) => x.classList.remove('on')); }));
     setInterval(() => {

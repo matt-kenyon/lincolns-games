@@ -34,7 +34,10 @@ URL options: `?debug` turns on test keys and `window.game.debug`. `&quality=low|
 normally adaptive).
 
 Debug keys (with `?debug`): `1`-`5` jump to checkpoints, `K` defeats the aliens in the current area, `I` toggles
-invincibility, `L` gives all Mars ship parts, `9` jumps to level 2, `0` jumps to level 2's escape pod.
+invincibility, `L` gives all Mars ship parts, `9` jumps to level 2, `0` jumps to level 2's escape pod. `M` switches
+the music set (each set in `sounds.js`, then the classic synth music), `Shift+M` holds one music mode (explore,
+combat, boss / ship, shipCombat, boss2) to hear a song's layers, `N` switches between the recorded and the classic
+synthesized sound effects. `dev/soundboard.html` plays every sound and song side by side.
 
 The title screen has a **chapter select**. Chapter 1 is Mars from the start. Chapter 2 starts with the escape from
 Mars (`startOutro`), runs the capture cutscene and then level 2.
@@ -91,9 +94,16 @@ Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.lev
   plant sway, a glowing vertex attribute and hex floors), `addOutline()` (inverted-hull ink lines), `glowSprite()`.
   `GeoBuilder` merges many primitives into one vertex-colored mesh. **Gotcha:** a color callback receives vertex
   positions after the part's position, rotation and scale are applied, so measure relative to the part's center.
-- **Audio** (`audio.js`): everything is synthesized with WebAudio (no sound files). `play(name, pos)`,
-  `setMusic('title'|'intro'|'theme'|'explore'|'combat'|'ship'|'boss2'|'none')`, `setAmbience('wind'|'ship')` (Mars wind or the ship's hum),
-  `alarm(on)`, `tractor(on)`, `say(text)` (speech synthesis).
+- **Audio** (`audio.js`, `samples.js`, file lists in `sounds.js`): sound effects and loops are recorded files in
+  `audio/sfx/` (MP3); anything without a file falls back to its synthesized version in `audio.js`. Music plays in
+  sets of songs from `audio/music/`, each split into stems that loop in sync; the music mode (`setMusic('title'|
+  'intro'|'explore'|'combat'|'boss'|'ship'|'shipCombat'|'boss2'|'theme'|'none')`) picks the song and fades its layers
+  in and out. Modes a set doesn't cover, and the **Classic music** setting, use the original synthesized music (class
+  `Music`, kept on purpose). Music loops are wrap-padded (`pad`) so they loop gaplessly in Safari; MP3s must be
+  encoded with libmp3lame (its gapless header makes them decode to the exact length). `dev/build-music.py` builds
+  the Woodland files. Bump `AUDIO_V` in `sounds.js` when you replace a file under the same name. Also
+  `setAmbience('wind'|'ship')`, `alarm(on)`, `tractor(on)`, `engine(level)`, `say(text)` (speech synthesis).
+  Credits for the Woodland music (CC BY 4.0) are on the end screen and must stay while it's used.
 - **HUD** (`hud.js`): hearts and shield, compass markers, the minimap, the boss bar, toasts, banners and prompts.
 
 ## Gotchas

@@ -9,7 +9,7 @@
 // ============================================================
 
 import { SampleBank, StemMusic } from './samples.js';
-import { SFX_FILES, MODES, PRELOAD } from './sounds.js';
+import { SFX_FILES, MUSIC_SETS, MUSIC_SET, STAGE_MODES } from './sounds.js';
 
 const NOTE = (n) => 440 * Math.pow(2, (n - 69) / 12); // MIDI -> Hz
 
@@ -24,6 +24,8 @@ export class AudioEngine {
         this.mode = 'none';
         this.classicMusic = false;
         this.classicSfx = false;   // play only the synthesized effects (used by dev/soundboard.html)
+        this.musicSet = MUSIC_SET;
+        this.forceMode = null;     // debug: hold one music mode (Shift+M)
         this.stageKey = 'mars';
     }
 
@@ -85,7 +87,7 @@ export class AudioEngine {
         this.music = new Music(this);
         this.bank = new SampleBank(this);
         this.stems = new StemMusic(this, this.bank);
-        this.bank.loadAllSfx();
+        this.bank.loadAllSfx().then(() => this.applySfxMode());
         this.preloadStage(this.stageKey);
         if (this.pendingMode) this.setMusic(this.pendingMode);
     }
@@ -145,12 +147,34 @@ export class AudioEngine {
         this.applyMusic();
     }
 
-    // New layered music when there is a song for this mode, otherwise the classic synth music
+    // The music set's song for this mode, otherwise the classic synth music
     applyMusic() {
-        const mode = this.mode;
-        const stems = !this.classicMusic && (mode === 'none' || !!MODES[mode]);
-        this.stems.setMode(stems ? mode : 'none');
-        this.music.setMode(stems ? 'none' : mode);
+        const mode = this.forceMode || this.mode;
+        const set = this.classicMusic ? null : MUSIC_SETS[this.musicSet];
+        const def = (set && set[mode]) || null;
+        this.stems.play(def);
+        this.music.setMode(def || mode === 'none' ? 'none' : mode === 'shipCombat' ? 'combat' : mode);
+    }
+
+    // Recorded wind and hum loops replace the synthesized ones once they've loaded
+    // (and switch back for the classic sound effects, debug key N)
+    applySfxMode() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        const files = !this.classicSfx;
+        for (const [name, bus, synth] of [['wind', this.windBus, this.windSynth], ['hum', this.humBus, this.humSynth]]) {
+            const key = name + 'Loop';
+            if (files && !this[key]) this[key] = this.bank.loop(name, bus);
+            const L = this[key];
+            const on = files && !!L;
+            if (L) L.g.gain.setTargetAtTime(on ? L.gain : 0, t, 0.5);
+            for (const [g, v] of synth) g.gain.setTargetAtTime(on ? 0 : v, t, 0.5);
+        }
+    }
+
+    setClassicSfx(on) {
+        this.classicSfx = !!on;
+        this.applySfxMode();
     }
 
     setClassicMusic(on) {
@@ -158,10 +182,36 @@ export class AudioEngine {
         if (this.ctx) this.applyMusic();
     }
 
+    stageSongs(key) {
+        const set = MUSIC_SETS[this.musicSet] || {};
+        return [...new Set((STAGE_MODES[key] || []).map((m) => set[m] && set[m].song).filter(Boolean))];
+    }
+
     // Load a stage's songs ahead of time ('mars' or 'ship')
     preloadStage(key) {
         this.stageKey = key;
-        if (this.stems) this.stems.preload(PRELOAD[key] || []);
+        if (this.stems) this.stems.preload(this.stageSongs(key));
+    }
+
+    // Debug (M): switch between the music sets and the classic synth music. Returns the new name.
+    cycleMusicSet() {
+        const names = [...Object.keys(MUSIC_SETS).filter((k) => Object.keys(MUSIC_SETS[k]).length), 'classic'];
+        const cur = this.classicMusic ? 'classic' : this.musicSet;
+        const next = names[(names.indexOf(cur) + 1) % names.length];
+        this.classicMusic = next === 'classic';
+        if (!this.classicMusic) this.musicSet = next;
+        if (this.ctx) {
+            this.stems.release(this.classicMusic ? [] : this.stageSongs(this.stageKey));
+            this.preloadStage(this.stageKey);
+            this.applyMusic();
+        }
+        return next;
+    }
+
+    // Debug (Shift+M): hold one music mode, e.g. 'combat' to hear the layers stack, or null for automatic
+    forceMusicMode(mode) {
+        this.forceMode = mode;
+        if (this.ctx) this.applyMusic();
     }
 
     // ---------- building blocks ----------
@@ -303,6 +353,7 @@ export class AudioEngine {
         bp.Q.value = 0.6;
         const g = ctx.createGain();
         g.gain.value = 0.11;
+        this.windSynth = [[g, 0.11]];
         const lfo = ctx.createOscillator();
         lfo.frequency.value = 0.07;
         const lg = ctx.createGain();
@@ -313,6 +364,7 @@ export class AudioEngine {
         lfo2.frequency.value = 0.13;
         const lg2 = ctx.createGain();
         lg2.gain.value = 0.05;
+        this.windSynth.push([lg2, 0.05]);
         lfo2.connect(lg2);
         lg2.connect(g.gain);
         src.connect(bp);
@@ -358,6 +410,7 @@ export class AudioEngine {
         bp.Q.value = 0.4;
         const ng = ctx.createGain();
         ng.gain.value = 0.03;
+        this.humSynth = [[g, 0.15], [ng, 0.03]];   // the timed wall thumps below stay either way
         src.connect(bp);
         bp.connect(ng);
         ng.connect(out);
@@ -375,7 +428,14 @@ export class AudioEngine {
     tractor(on) {
         if (!this.ctx) return;
         const ctx = this.ctx;
-        if (on && !this.tb) {
+        if (on && !this.tb && !this.classicSfx && this.bank.loopReady('tractor')) {
+            // recorded engine pulse, sped up as the beam reels you in
+            const t = ctx.currentTime;
+            const L = this.bank.loop('tractor', this.sfx);
+            L.g.gain.setTargetAtTime(L.gain, t, 0.3);
+            L.src.playbackRate.setTargetAtTime(1.65, t, 6);
+            this.tb = { g: L.g, nodes: [L.src] };
+        } else if (on && !this.tb) {
             const t = ctx.currentTime;
             const o = ctx.createOscillator();
             o.frequency.value = 90;
@@ -413,11 +473,17 @@ export class AudioEngine {
         }
     }
 
-    // Rocket engine rumble for cutscenes (level 0..1)
+    // Rocket engine rumble for cutscenes (level 0..1): the recorded rumble + thruster loops once
+    // they've loaded, otherwise (or with the classic sound effects) a synthesized one
     engine(level) {
         if (!this.ctx) return;
         const ctx = this.ctx;
-        if (!this.eng) {
+        const t = ctx.currentTime;
+        const files = !this.classicSfx && this.bank.loopReady('engine');
+        if (files && !this.engF) {
+            this.engF = { rumble: this.bank.loop('engine', this.sfx, 0), thrust: this.bank.loop('engine', this.sfx, 1) };
+        }
+        if (!files && !this.engS) {
             const src = ctx.createBufferSource();
             src.buffer = this.noiseBuf;
             src.loop = true;
@@ -442,17 +508,35 @@ export class AudioEngine {
             g.connect(this.sfx);
             src.start();
             o.start();
-            this.eng = { g, lp, o };
+            this.engS = { g, lp, o };
         }
-        const t = ctx.currentTime;
-        this.eng.g.gain.setTargetAtTime(level * 0.55, t, 0.15);
-        this.eng.lp.frequency.setTargetAtTime(250 + level * 900, t, 0.2);
-        this.eng.o.frequency.setTargetAtTime(40 + level * 35, t, 0.2);
+        if (this.engF) {
+            const { rumble, thrust } = this.engF;
+            const k = files ? level : 0;
+            rumble.g.gain.setTargetAtTime(k * rumble.gain, t, 0.15);
+            thrust.g.gain.setTargetAtTime(Math.pow(k, 1.5) * thrust.gain, t, 0.15);
+            for (const L of [rumble, thrust]) L.src.playbackRate.setTargetAtTime(0.85 + 0.35 * level, t, 0.2);
+        }
+        if (this.engS) {
+            this.engS.g.gain.setTargetAtTime(files ? 0 : level * 0.55, t, 0.15);
+            this.engS.lp.frequency.setTargetAtTime(250 + level * 900, t, 0.2);
+            this.engS.o.frequency.setTargetAtTime(40 + level * 35, t, 0.2);
+        }
     }
 
     alarm(on) {
         if (!this.ctx) return;
-        if (on && !this.alarmTimer) {
+        const t = this.ctx.currentTime;
+        if (on && !this.alarmLoop && !this.alarmTimer && !this.classicSfx && this.bank.loopReady('alarm')) {
+            this.alarmLoop = this.bank.loop('alarm', this.sfx);
+            this.alarmLoop.g.gain.setTargetAtTime(this.alarmLoop.gain, t, 0.02);
+        } else if (!on && this.alarmLoop) {
+            const L = this.alarmLoop;
+            this.alarmLoop = null;
+            L.g.gain.setTargetAtTime(0, t, 0.08);
+            L.src.stop(t + 0.6);
+        }
+        if (on && !this.alarmTimer && !this.alarmLoop) {
             const ring = () => {
                 const t = this.ctx.currentTime + 0.01;
                 this.osc(this.sfx, { t, type: 'square', f: 880, f2: 620, dur: 0.42, vol: 0.07, a: 0.01, lp: 2400 });
@@ -470,6 +554,7 @@ export class AudioEngine {
         if (on && !this.hbTimer) {
             const beat = () => {
                 const t = this.ctx.currentTime + 0.01;
+                if (!this.classicSfx && this.bank.playSfx('heartbeat', this.sfx, t)) return;
                 this.osc(this.sfx, { t, f: 70, f2: 50, dur: 0.14, vol: 0.32 });
                 this.osc(this.sfx, { t: t + 0.2, f: 62, f2: 45, dur: 0.16, vol: 0.22 });
             };

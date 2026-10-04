@@ -746,6 +746,21 @@ class Game {
         if (i.wasPressed('KeyL')) this.debug.allParts();
         if (i.wasPressed('Digit9')) this.debug.stage2();
         if (i.wasPressed('Digit0')) this.debug.stage2(5);
+        if (i.wasPressed('KeyM')) {
+            if (i.keys.has('ShiftLeft') || i.keys.has('ShiftRight')) {
+                // hold one music mode, to hear a song's layers without fighting
+                const list = this.stage.key === 'ship' ? [null, 'ship', 'shipCombat', 'boss2'] : [null, 'explore', 'combat', 'boss'];
+                const next = list[(list.indexOf(this.audio.forceMode) + 1) % list.length];
+                this.audio.forceMusicMode(next);
+                this.hud.toast('Music mode: ' + (next || 'automatic'));
+            } else {
+                this.hud.toast('Music: ' + this.audio.cycleMusicSet());
+            }
+        }
+        if (i.wasPressed('KeyN')) {
+            this.audio.setClassicSfx(!this.audio.classicSfx);
+            this.hud.toast('Sound effects: ' + (this.audio.classicSfx ? 'classic (synthesized)' : 'new (recorded)'));
+        }
     }
 
     get debug() {
