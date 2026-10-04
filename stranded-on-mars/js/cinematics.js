@@ -673,6 +673,7 @@ export class Cinematics {
                     A.setMusic('title');
                     this.caption('', '');
                     astro.root.position.set(START.x - 3, gyStart + 24, START.z + 4);
+                    astro.root.rotation.y = 2.3; // land facing the camera (3/4), not with his back to it
                     chute.position.copy(astro.root.position);
                     astroVel.set(0.4, -4.6, -0.6);
                     this.landed = false;
