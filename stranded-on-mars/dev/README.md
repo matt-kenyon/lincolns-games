@@ -66,7 +66,15 @@ game's debug helpers on `window.game` (they are listed in `../CLAUDE.md`). For e
 {fire: true}, true)` runs 5 seconds of gameplay with the trigger held and the aim locked on the nearest enemy.
 `game.debug.cineShot(4, 2.5)` fast-forwards the current cutscene to shot 4, 2.5 seconds in.
 
+## Reviewing sounds
+
+`dev/soundboard.html` plays every sound effect old (synthesized) and new (recorded file) side by side, every music
+mode in new and classic versions, and the loops. Open http://localhost:8765/stranded-on-mars/dev/soundboard.html
+with the server running. The file lists are in `../js/sounds.js`.
+
 ## Notes
+
+- Test browsers are muted (`mute.mjs`), so tests don't play sounds through the speakers. Use it in any new script.
 
 - On a Mac both Chrome and WebKit render on the real GPU (an M1 Pro: about 60 fps in every area at 1512x945, 2x,
   checked October 2026). Close other heavy apps before `fps.mjs`, because anything else using the machine shows up as

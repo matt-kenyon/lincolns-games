@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
     lookSensitivity: 1,    // game controller right-stick turning speed
     verticalLook: 1,       // up/down speed compared to left/right
     invert: false,
+    classicMusic: false,   // the original synthesized music instead of the new songs
     difficulty: 'normal',
 };
 
@@ -30,6 +31,7 @@ const ROWS = [
     { section: 'SOUND' },
     { key: 'volume', label: 'Volume', min: 0, max: 1, step: 0.05, fmt: pct },
     { key: 'music', label: 'Music', min: 0, max: 1, step: 0.05, fmt: pct },
+    { key: 'classicMusic', label: 'Classic music', check: true },
 ];
 
 const LOOK_KEYS = ['sensitivity', 'lookSensitivity', 'verticalLook', 'invert'];

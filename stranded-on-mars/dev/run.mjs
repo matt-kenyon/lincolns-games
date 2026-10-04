@@ -16,6 +16,7 @@
 // The game exposes window.game; game.debug has helpers (see CLAUDE.md).
 // ============================================================
 import { chromium, webkit } from 'playwright';
+import { MUTE_ARGS, mutePage } from './mute.mjs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -32,13 +33,14 @@ if (!file) {
 const steps = JSON.parse(fs.readFileSync(file, 'utf8'));
 
 // Linux containers have no GPU: use the SwiftShader software renderer there.
-const args = ['--autoplay-policy=no-user-gesture-required'];
+const args = ['--autoplay-policy=no-user-gesture-required', ...MUTE_ARGS];
 if (process.platform === 'linux') args.push('--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist');
 const which = process.env.BROWSER || 'chromium';
 const browser = which === 'webkit'
     ? await webkit.launch({ headless: !process.env.HEADED })
     : await chromium.launch({ headless: !process.env.HEADED, args, channel: which === 'chrome' ? 'chrome' : undefined });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+await mutePage(page);
 const logs = [];
 let errors = 0;
 page.on('console', (m) => {

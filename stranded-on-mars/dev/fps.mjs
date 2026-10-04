@@ -4,13 +4,15 @@
 // and slowly turns while aliens attack, then reports average fps, the slowest 1% of frames and the
 // resolution scale the game settled on.
 import { chromium, webkit } from 'playwright';
+import { MUTE_ARGS, mutePage } from './mute.mjs';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8765';
 const which = process.env.BROWSER || 'chrome';
 const browser = which === 'webkit'
     ? await webkit.launch()
-    : await chromium.launch({ channel: which === 'chrome' ? 'chrome' : undefined });
+    : await chromium.launch({ channel: which === 'chrome' ? 'chrome' : undefined, args: MUTE_ARGS });
 const page = await browser.newPage({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 2 });
+await mutePage(page);
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 await page.goto(BASE + '/stranded-on-mars/?debug', { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 90000 });

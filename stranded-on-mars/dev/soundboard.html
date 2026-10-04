@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stranded on Mars soundboard</title>
+<style>
+    :root { color-scheme: dark; --bg: #16121f; --card: #221c30; --ink: #f3ece2; --dim: #a99fb8; --old: #8d97a3; --new: #ff7a2e; --on: #7dff9a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px 16px 64px; background: var(--bg); color: var(--ink); font: 15px/1.4 system-ui, -apple-system, sans-serif; }
+    main { max-width: 980px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 16px; margin: 28px 0 8px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
+    p { color: var(--dim); margin: 0 0 12px; }
+    button { font: inherit; border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; color: #16121f; background: var(--new); }
+    button.old { background: var(--old); }
+    button.on { background: var(--on); }
+    button:disabled { opacity: 0.3; cursor: default; }
+    #start { font-size: 18px; padding: 10px 22px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 8px; }
+    .row { display: flex; align-items: center; gap: 8px; background: var(--card); border-radius: 8px; padding: 8px 10px; }
+    .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .file { display: block; font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
+    .layers { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .meter { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--dim); }
+    .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+    <h1>Stranded on Mars soundboard</h1>
+    <p>Compare the old synthesized sounds (gray) with the new recorded ones (orange). A sound with no new file only has an Old button. Serve the repo root (<code>python3 -m http.server 8765</code>) and open <code>http://localhost:8765/stranded-on-mars/dev/soundboard.html</code>.</p>
+    <button id="start">Start audio</button>
+    <div id="board" class="hidden">
+        <h2>Music</h2>
+        <p>Each mode is what the game asks for in that moment. New music plays the song's layers for that mode; switch modes on the same song (explore, combat, boss) to hear layers fade in and out.</p>
+        <div class="layers" id="modes"></div>
+        <p class="meter" id="meter"></p>
+        <h2>Loops</h2>
+        <div class="layers" id="loops"></div>
+        <h2>Sound effects</h2>
+        <div class="grid" id="sfx"></div>
+    </div>
+</main>
+<script type="module">
+import { AudioEngine, SFX } from '../js/audio.js';
+import { SFX_FILES, MODES } from '../js/sounds.js';
+
+const A = new AudioEngine();
+const $ = (id) => document.getElementById(id);
+const btn = (label, cls, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (cls) b.className = cls;
+    b.addEventListener('click', fn);
+    return b;
+};
+
+$('start').addEventListener('click', () => {
+    A.init();
+    A.setAmbience('none');
+    A.setAmbient(0);
+    $('start').classList.add('hidden');
+    $('board').classList.remove('hidden');
+    build();
+});
+
+function build() {
+    // ---- music modes ----
+    const modes = ['title', 'intro', 'explore', 'combat', 'boss', 'ship', 'boss2', 'theme'];
+    const box = $('modes');
+    const all = [];
+    const play = (mode, classic, b) => {
+        A.setClassicMusic(classic);
+        A.mode = '';
+        A.setMusic(mode);
+        all.forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+    };
+    for (const m of modes) {
+        const n = btn(m + ' (new)', '', () => play(m, false, n));
+        n.disabled = !MODES[m];
+        const o = btn(m + ' (old)', 'old', () => play(m, true, o));
+        all.push(n, o);
+        box.append(n, o);
+    }
+    box.append(btn('stop', 'old', () => { A.mode = ''; A.setMusic('none'); all.forEach((x) => x.classList.remove('on')); }));
+    setInterval(() => {
+        const c = A.stems && A.stems.cur;
+        $('meter').textContent = c
+            ? 'Playing ' + c.name + ': ' + Object.entries(c.layers).map(([k, L]) => `${k} ${Math.round(L.g.gain.value * 100)}%`).join(', ')
+            : A.classicMusic && A.mode !== 'none' ? 'Playing the classic synth music: ' + A.mode : '';
+    }, 200);
+
+    // ---- loops ----
+    const loops = {
+        'Mars wind': (on) => { A.setAmbience('wind'); A.setAmbient(on ? 1 : 0); },
+        'Mothership hum': (on) => { A.setAmbience('ship'); A.setAmbient(on ? 1 : 0); },
+        'Tractor beam': (on) => A.tractor(on),
+        'Rocket engine': (on) => A.engine(on ? 0.8 : 0),
+        'Alarm': (on) => A.alarm(on),
+        'Heartbeat': (on) => A.heartbeat(on),
+    };
+    for (const [name, fn] of Object.entries(loops)) {
+        let on = false;
+        const b = btn(name, 'old', () => { on = !on; fn(on); b.classList.toggle('on', on); });
+        $('loops').append(b);
+    }
+
+    // ---- effects ----
+    const names = [...new Set([...Object.keys(SFX), ...Object.keys(SFX_FILES)])];
+    for (const name of names) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const label = document.createElement('span');
+        label.className = 'name';
+        label.textContent = name;
+        const f = SFX_FILES[name];
+        if (f) {
+            const file = document.createElement('span');
+            file.className = 'file';
+            file.textContent = f.files.join(', ');
+            label.append(file);
+        }
+        row.append(label);
+        const fire = (classic) => { A.classicSfx = classic; A.last = {}; A.play(name); A.classicSfx = false; };
+        if (SFX[name]) row.append(btn('Old', 'old', () => fire(true)));
+        if (f) row.append(btn('New', '', () => fire(false)));
+        $('sfx').append(row);
+    }
+}
+</script>
+</body>
+</html>

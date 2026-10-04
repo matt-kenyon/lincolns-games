@@ -1,9 +1,15 @@
 // ============================================================
-// AUDIO — everything is synthesized with Web Audio (no files)
-//  - sound effects (with simple 3D panning)
-//  - music: gentle piano while exploring (Breath of the Wild vibes),
-//    drums + bass when aliens attack, a boss mix, and an ending theme
+// AUDIO — sound effects (with simple 3D panning), loops and music
+//  - recorded effects and layered music come from files (samples.js,
+//    listed in sounds.js); anything without a file is synthesized here
+//  - the "classic" synthesized music is kept below (class Music):
+//    gentle piano while exploring (Breath of the Wild vibes), drums + bass
+//    when aliens attack, a boss mix, and an ending theme. The Classic music
+//    setting switches back to it.
 // ============================================================
+
+import { SampleBank, StemMusic } from './samples.js';
+import { SFX_FILES, MODES, PRELOAD } from './sounds.js';
 
 const NOTE = (n) => 440 * Math.pow(2, (n - 69) / 12); // MIDI -> Hz
 
@@ -16,6 +22,9 @@ export class AudioEngine {
         this.last = {};
         this.listener = { x: 0, y: 0, z: 0, yaw: 0 };
         this.mode = 'none';
+        this.classicMusic = false;
+        this.classicSfx = false;   // play only the synthesized effects (used by dev/soundboard.html)
+        this.stageKey = 'mars';
     }
 
     init() {
@@ -74,6 +83,10 @@ export class AudioEngine {
         this.startHum();
         this.setAmbience(this.ambience || 'wind');
         this.music = new Music(this);
+        this.bank = new SampleBank(this);
+        this.stems = new StemMusic(this, this.bank);
+        this.bank.loadAllSfx();
+        this.preloadStage(this.stageKey);
         if (this.pendingMode) this.setMusic(this.pendingMode);
     }
 
@@ -129,7 +142,26 @@ export class AudioEngine {
         if (!this.ctx) { this.pendingMode = mode; return; }
         if (this.mode === mode) return;
         this.mode = mode;
-        this.music.setMode(mode);
+        this.applyMusic();
+    }
+
+    // New layered music when there is a song for this mode, otherwise the classic synth music
+    applyMusic() {
+        const mode = this.mode;
+        const stems = !this.classicMusic && (mode === 'none' || !!MODES[mode]);
+        this.stems.setMode(stems ? mode : 'none');
+        this.music.setMode(stems ? 'none' : mode);
+    }
+
+    setClassicMusic(on) {
+        this.classicMusic = !!on;
+        if (this.ctx) this.applyMusic();
+    }
+
+    // Load a stage's songs ahead of time ('mars' or 'ship')
+    preloadStage(key) {
+        this.stageKey = key;
+        if (this.stems) this.stems.preload(PRELOAD[key] || []);
     }
 
     // ---------- building blocks ----------
@@ -229,12 +261,13 @@ export class AudioEngine {
     play(name, pos, opts) {
         if (!this.ctx || this.ctx.state !== 'running') return;
         const fn = SFX[name];
-        if (!fn) return;
+        if (!fn && !SFX_FILES[name]) return;
         const now = this.ctx.currentTime;
         const minGap = GAP[name] ?? 0.03;
         if (this.last[name] && now - this.last[name] < minGap) return;
         this.last[name] = now;
         let out = this.sfx;
+        let pan = null;
         if (pos) {
             const L = this.listener;
             const dx = pos.x - L.x, dy = pos.y - L.y, dz = pos.z - L.z;
@@ -243,17 +276,19 @@ export class AudioEngine {
             if (att < 0.02) return;
             // angle relative to where the listener faces
             const ang = Math.atan2(-dx, -dz) - L.yaw;
-            const pan = Math.max(-0.85, Math.min(0.85, -Math.sin(ang)));
+            const side = Math.max(-0.85, Math.min(0.85, -Math.sin(ang)));
             const g = this.ctx.createGain();
             g.gain.value = att;
             const p = this.ctx.createStereoPanner();
-            p.pan.value = pan;
+            p.pan.value = side;
             g.connect(p);
             p.connect(this.sfx);
             out = g;
-            setTimeout(() => { g.disconnect(); p.disconnect(); }, 4000);
+            pan = p;
         }
-        fn(this, out, now + 0.005, opts);
+        const dur = this.classicSfx ? 0 : this.bank.playSfx(name, out, now + 0.005);
+        if (!dur && fn) fn(this, out, now + 0.005, opts);
+        if (pan) setTimeout(() => { out.disconnect(); pan.disconnect(); }, Math.max(4, dur + 1) * 1000);
     }
 
     // ---------- loops ----------
@@ -480,7 +515,7 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 // ------------------------------------------------------------
 // Sound effects
 // ------------------------------------------------------------
-const SFX = {
+export const SFX = {
     blaster(A, out, t) {
         const k = rnd(0.94, 1.06);
         A.osc(out, { t, type: 'square', f: 1150 * k, f2: 260 * k, dur: 0.12, vol: 0.11, lp: 3500 });

@@ -68,6 +68,7 @@ class Game {
         this.audio = new AudioEngine();
         this.audio.volume = this.settings.volume;
         this.audio.musicVolume = this.settings.music;
+        this.audio.classicMusic = this.settings.classicMusic;
         this.input = new Input(this.canvas);
         this.effects = new Effects(this.scene);
         this.hud = new HUD(this);
@@ -165,6 +166,7 @@ class Game {
         const onSetting = (key, value) => {
             if (key === 'volume') this.audio.setVolume(value);
             if (key === 'music') this.audio.setMusicVolume(value);
+            if (key === 'classicMusic') this.audio.setClassicMusic(value);
         };
         mountSettings($('settings-title'), this.settings, onSetting);
         mountSettings($('settings-pause'), this.settings, onSetting);
@@ -210,6 +212,7 @@ class Game {
     // Build the mothership (once). It takes a moment, so it happens behind a dark screen.
     buildShipStage() {
         if (this.stages.ship) return this.stages.ship;
+        this.audio.preloadStage('ship');
         const prev = this.stage;
         this.scene = new THREE.Scene();
         this.effects = new Effects(this.scene);
