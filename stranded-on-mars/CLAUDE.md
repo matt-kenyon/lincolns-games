@@ -12,7 +12,7 @@ project stands and what was done most recently. `README.md` is the player-facing
 ## Golden rules
 
 1. **Bump the module version on every JS change.** Every module is loaded through the import map in `index.html` with
-   `?v=N` (currently `?v=6`). When you change anything in `js/`, find-and-replace `?v=N` with `?v=N+1` in
+   `?v=N` (currently `?v=7`). When you change anything in `js/`, find-and-replace `?v=N` with `?v=N+1` in
    `index.html` (and the number in README.md's "Updating the game" section). Safari otherwise mixes cached old modules
    with new ones and the game fails to start. This has happened before.
 2. **No build step.** Plain ES modules plus a vendored three.js r186 (`vendor/three.module.min.js`). Don't add
@@ -103,7 +103,8 @@ Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.lev
   'intro'|'explore'|'combat'|'boss'|'ship'|'shipCombat'|'boss2'|'theme'|'none')`) picks the song and fades its layers
   in and out. Modes a set doesn't cover, and the **Classic music** setting, use the original synthesized music (class
   `Music`, kept on purpose). Music loops are wrap-padded (`pad`) so they loop gaplessly in Safari; MP3s must be
-  encoded with libmp3lame (its gapless header makes them decode to the exact length). `dev/build-music.py` builds
+  encoded with libmp3lame (its gapless header makes them decode to the exact length). Every home-* song is built
+  on Lincoln's own theme (transcribed from his keyboard demo; see `dev/music/README.md`). `dev/build-music.py` builds
   the Woodland files. Bump `AUDIO_V` in `sounds.js` when you replace a file under the same name. Also
   `setAmbience('wind'|'ship')`, `alarm(on)`, `tractor(on)`, `engine(level)`, `say(text)` (speech synthesis).
   Credits for the Woodland music (CC BY 4.0) are on the end screen and must stay while it's used.

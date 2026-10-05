@@ -59,8 +59,8 @@ saved in the browser, and RESET LOOK SETTINGS puts the look options back to norm
 
 ## Updating the game
 
-Every code file is loaded with a version number (`?v=6`) set in `index.html`. **Whenever you change anything in
-`js/`, bump that number everywhere in `index.html`** (find and replace `?v=6` with `?v=7`). Otherwise browsers that
+Every code file is loaded with a version number (`?v=7`) set in `index.html`. **Whenever you change anything in
+`js/`, bump that number everywhere in `index.html`** (find and replace `?v=7` with `?v=8`). Otherwise browsers that
 kept old files (Safari especially) can mix old and new code after the update and fail to start.
 
 ## Testing tips

@@ -54,10 +54,12 @@ def build(name):
     gains = {}
     for k in stems:
         I, tp = loudness(meas[k]); gains[k] = 10 ** ((sp['targets'][k] - I) / 20)
-    stack = sum(meas[k] * gains[k] for k in stems)
-    _, stp = loudness(stack)
-    if stp > -1.0:
-        cut = 10 ** ((-1.0 - stp) / 20)
+    for _ in range(4):      # repeat: a stack over 0 dBFS is clipped in the measuring WAV, so one pass can fall short
+        stack = sum(meas[k] * gains[k] for k in stems)
+        _, stp = loudness(stack)
+        stp = max(stp, 20 * np.log10(np.abs(stack).max() + 1e-12))
+        if stp <= -1.0: break
+        cut = 10 ** ((-1.05 - stp) / 20)
         for k in gains: gains[k] *= cut
         print(f'  {name}: stack true peak {stp:.1f} dBTP, all stems lowered {20*np.log10(cut):.1f} dB')
     report = {}

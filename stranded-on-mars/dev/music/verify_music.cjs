@@ -12,6 +12,8 @@ for (const f of fs.readdirSync(OUT).filter(f => /^home-[a-z0-9]+\.json$/.test(f)
   for (const [name, bt] of [['chrome', chromium], ['webkit', webkit]]) {
     const b = await bt.launch(name === 'chrome' ? { channel: 'chrome', headless: true, args: ['--mute-audio'] } : { headless: true });
     const p = await b.newPage();
+    const { mutePage } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'mute.mjs')).href);
+    await mutePage(p);    // offline decoding only, but keep every test page silent anyway
     await p.route('http://m.local/**', r => { const f = decodeURIComponent(new URL(r.request().url()).pathname.slice(1)); if (!f) return r.fulfill({ contentType: 'text/html', body: '<html></html>' }); r.fulfill({ contentType: 'audio/mpeg', body: fs.readFileSync(path.join(MUSIC, f)) }); });
     await p.goto('http://m.local/');
     res[name] = {};
@@ -33,6 +35,9 @@ for (const f of fs.readdirSync(OUT).filter(f => /^home-[a-z0-9]+\.json$/.test(f)
             // play across the loop point with the real looping mechanism
             const oc = new OfflineAudioContext(2, Math.round(0.5 * rate), rate);
             const src = oc.createBufferSource(); src.buffer = buf; src.loop = true; src.loopStart = ls; src.loopEnd = le;
+            // mutePage() hands every context a silent gain as its destination. An OfflineAudioContext only
+            // renders into a buffer (it can't reach the speakers), so open that one gain back up.
+            if (oc.destination.gain) oc.destination.gain.value = 1;
             src.connect(oc.destination); src.start(0, le - 0.25);
             const ren = await oc.startRendering();
             r.played = enc(ren.getChannelData(0));

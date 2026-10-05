@@ -8,7 +8,7 @@
 // Bump AUDIO_V when you replace a file with a new version under the same name.
 // ============================================================
 
-export const AUDIO_V = 1;
+export const AUDIO_V = 2;
 
 // name: { files: [...], gain, rate: [min, max] (random pitch), offset (s), dur (s) }
 // files are paths under audio/sfx/ without the .mp3; one is picked at random each time.
@@ -110,14 +110,14 @@ export const MUSIC = {
     // Woodland Music Vol 1 by JC Sounds (CC BY 4.0), remixed into game loops by dev/build-music.py
     'woodland-level': { loop: 144, pad: 0.5, gain: 0.8, stems: { base: 'woodland-level-base', drums: 'woodland-level-drums' } },
     'woodland-boss': { loop: 100.64517, pad: 0.5, gain: 0.32, stems: { main: 'woodland-boss' } },
-    // Our own songs, played with CC0 instrument samples (VSCO 2 CE and VCSL by Versilian Studios) plus a
-    // GeneralUser GS celesta. The scores and render scripts are in dev/music/.
-    'home-mars': { loop: 64, pad: 0.5, gain: 0.87, stems: { base: 'home-mars-base', perc: 'home-mars-perc', drive: 'home-mars-drive' } },
-    'home-captain': { loop: 54.857143, pad: 0.5, gain: 0.76, stems: { base: 'home-captain-base' } },
-    'home-title': { loop: 45.714286, pad: 0.5, gain: 0.77, stems: { base: 'home-title-base' } },
-    'home-intro': { loop: 32, pad: 0.5, gain: 0.86, stems: { base: 'home-intro-base' } },
+    // Our own songs, all built on Lincoln's theme (his keyboard demo, transcribed), played with CC0 instrument
+    // samples (VSCO 2 CE and VCSL by Versilian Studios) plus a GeneralUser GS celesta. Scores: dev/music/songs.py.
+    'home-mars': { loop: 53.333333, pad: 0.5, gain: 0.87, stems: { base: 'home-mars-base', perc: 'home-mars-perc', drive: 'home-mars-drive' } },
+    'home-captain': { loop: 51.2, pad: 0.5, gain: 0.76, stems: { base: 'home-captain-base' } },
+    'home-title': { loop: 60, pad: 0.5, gain: 0.77, stems: { base: 'home-title-base' } },
+    'home-intro': { loop: 48, pad: 0.5, gain: 0.86, stems: { base: 'home-intro-base' } },
     'home-ship': { loop: 60, pad: 0.5, gain: 0.77, stems: { base: 'home-ship-base', perc: 'home-ship-perc', drive: 'home-ship-drive' } },
-    'home-boss2': { intro: 5.714286, loop: 45.714286, gain: 0.76, stems: { base: 'home-boss2-base', rage: 'home-boss2-rage' } },
+    'home-boss2': { intro: 5.714286, loop: 51.428571, gain: 0.76, stems: { base: 'home-boss2-base', rage: 'home-boss2-rage' } },
     'home-theme': { once: true, gain: 0.76, stems: { base: 'home-theme-base' } },
 };
 
@@ -152,7 +152,7 @@ export const MUSIC_SETS = {
     ours: OURS,
 };
 
-export const MUSIC_SET = 'mix';   // the set players hear (with ?debug, M switches sets in game)
+export const MUSIC_SET = 'ours';   // the set players hear: Lincoln's theme everywhere (with ?debug, M switches sets)
 
 // The songs each stage needs, loaded when the stage starts (and the other stage's songs freed)
 export const STAGE_MODES = {
