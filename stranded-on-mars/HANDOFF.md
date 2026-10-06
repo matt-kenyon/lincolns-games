@@ -135,11 +135,16 @@ A real kid aims worse, so expect 1.5-3 minutes. If Lincoln finds it too hard or 
 - **Real hardware**: performance and feel of level 2 on the Mac (Safari + Chrome) and with a game controller. In
   headless tests the mothership draws fewer triangles than Mars (130-250k vs about 600k) with similar draw calls
   (35-420 depending on the room), so it should run at least as well as Mars.
-- **Waiting on Matt before shipping the October work:** listen to the new sounds and both music sets (nobody has
-  heard them; every pick was made from names and measurements), choose `mix` or `ours` (`MUSIC_SET` in
-  `sounds.js`), approve the end-screen credit line, and decide whether to keep the Sonniss/Mixkit sound effects
-  in the public repo (both licenses allow games; CC0 fallbacks are listed in `dev/audio-src/MAPPING.md`).
-- Weakest new music: the `ours` Mars combat layers and the Alien Captain song (thin free brass/short strings).
+- **Shipped (October 2026):** the October work is live on `main`. **The soundtrack is Lincoln's own theme**: he
+  recorded a keyboard demo, it was transcribed (A minor, 102 bpm, 12 bars of parallel thirds; notes in
+  `dev/music/songs.py` as `LT`) and every `home-*` song is built on it. **Lincoln confirmed the transcription is his
+  song** (2026-10-05), so keep his notes as they are; ask him before changing them. `MUSIC_SET = 'ours'` is the
+  default; Woodland and the classic synth music stay reachable with `?debug` + `M`. His recording and video are
+  only in the git-ignored `dev/audio-src/lincoln-theme/` (the repo is public: never commit them). The recorded
+  sound effects (Sonniss/Mixkit included) and the end-screen credits went live as recommended. Nobody has
+  reviewed every sound by ear yet; the claude.ai sound review page (Keep / Swap per sound) is where Matt marks them.
+- Not Lincoln's: the singing counter-line `LT_SONG`, the G# notes and the mothership's bass notes were added by
+  the arranger. The ending switches to A major (his C becomes C#) on purpose.
 - The over-the-shoulder self-destruct shot still has Lincoln's helmet in about 30% of the frame.
 - Touch devices aren't supported (keyboard/mouse or gamepad only).
 - No automated tests run in CI. The `dev/` tests are run by hand.
