@@ -29,7 +29,8 @@ const $ = (id) => document.getElementById(id);
 const _tp = new THREE.Vector3();
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 const params = new URLSearchParams(location.search);
-const DEBUG = params.has('debug');
+const TEST = params.has('test');     // the title screen's menu for jumping into Mars's new parts
+const DEBUG = params.has('debug') || TEST;
 
 class Game {
     constructor() {
@@ -167,10 +168,10 @@ class Game {
             this.resume();
         });
         $('btn-quit').addEventListener('click', () => {
-            location.href = location.pathname + (DEBUG ? '?debug' : '');
+            location.href = location.pathname + (TEST ? '?test' : DEBUG ? '?debug' : '');
         });
         $('btn-again').addEventListener('click', () => {
-            location.href = location.pathname + (DEBUG ? '?debug' : '');
+            location.href = location.pathname + (TEST ? '?test' : DEBUG ? '?debug' : '');
         });
         // Sensitivity + sound settings (title SETTINGS screen and pause menu share them)
         const onSetting = (key, value) => {
@@ -179,6 +180,7 @@ class Game {
             if (key === 'classicMusic') this.audio.setClassicMusic(value);
         };
         mountSettings($('settings-title'), this.settings, onSetting);
+        if (TEST) this.buildTestMenu();
         mountSettings($('settings-pause'), this.settings, onSetting);
         // touch-only devices
         const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches;
@@ -317,6 +319,49 @@ class Game {
         // fade to black first (building the mothership takes a moment), then lift off
         this.cine.fadeTo(1, 0.3);
         setTimeout(() => this.startOutro(), 380);
+    }
+
+    // ?test: start Mars and jump straight into one of its newer parts (testSpot in level.js sets it up)
+    startTest(name, label) {
+        this.newGame();
+        this.debug.skipIntro();
+        const go = () => {
+            if (this.state !== 'play') return setTimeout(go, 50);
+            this.debug.testSpot(name);
+            this.hud.toast('TEST: ' + label, 3);
+        };
+        go();
+    }
+
+    buildTestMenu() {
+        const spots = [
+            ['crate', 'Supply crate', 'Red Rock Canyon: the stash behind the stone arch'],
+            ['raid', 'Camp raid', 'Walk into the Crystal Forest camp to set off the alarm'],
+            ['rover', 'Find the rover', 'Camp beaten, rover upside down: hold E to flip it'],
+            ['plains', 'Drive the plains', 'The Great Dust Plains with the rover ready'],
+            ['jump', 'Mesa jump', 'Rover at the foot of the launch ridge: full speed to the mesa'],
+            ['bikes', 'Hover-bikers', 'Out where the hover-bike aliens ride'],
+            ['ice', 'Frozen lake', 'Crack the ice over the thruster with grenades'],
+        ];
+        const box = document.createElement('div');
+        box.className = 'test-menu';
+        const h = document.createElement('div');
+        h.className = 'menu-label';
+        h.textContent = 'TEST MENU: JUMP TO A NEW PART';
+        box.appendChild(h);
+        for (const [name, label, hint] of spots) {
+            const b = document.createElement('button');
+            b.className = 'btn small ghost';
+            b.textContent = label;
+            b.title = hint;
+            b.addEventListener('click', () => this.startTest(name, label));
+            box.appendChild(b);
+        }
+        const keys = document.createElement('div');
+        keys.className = 'test-keys';
+        keys.textContent = 'Keys while playing: I invincible, V rover in front of you, 1-6 checkpoints, M music, N sounds';
+        box.appendChild(keys);
+        $('screen-title').appendChild(box);
     }
 
     newGame() {

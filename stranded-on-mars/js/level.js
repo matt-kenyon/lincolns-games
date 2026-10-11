@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import {
     ZONES, ZONE, PART_SPOTS, PART_ORDER, CHECKPOINTS, SHIP, GATES, zoneAtS, START, JUMP, ICE_LAKE,
+    CRATES, CAMP, ROVER_SPOT, ICE_SLAB,
 } from './layout.js';
 import { PLAYER } from './config.js';
 import { PART_INFO, buildPartModel, partSlotWorld } from './ship.js';
@@ -643,6 +644,50 @@ export class Level {
                     S.hit(new THREE.Vector3(S.slab.position.x, S.top + 0.2, S.slab.position.z), PLAYER.grenadeRadius);
                 }
                 return { hits: S.hits, broken: S.broken };
+            },
+            // Set up one of the new parts of Mars to try it out (the title screen's ?test menu)
+            testSpot(name) {
+                const P = g.player, M = L.missions, R = g.rover;
+                const stand = (x, z, tx, tz) => P.spawn(x, z, face(tx - x, tz - z));
+                const roverFound = () => { M.roverFound = true; M.roverRode = true; };
+                // the rover parked right beside you (E reaches about 3 m), facing the way you face
+                const roverBeside = () => g.debug.rover(P.pos.x + Math.cos(P.yaw) * 2.4, P.pos.z - Math.sin(P.yaw) * 2.4, P.yaw);
+                if (name === 'crate') {
+                    // Red Rock Canyon's supply stash, behind the stone arch
+                    doneBefore(ZONE.canyon);
+                    stand(CRATES[0].x, CRATES[0].z + 12, CRATES[0].x, CRATES[0].z);
+                } else if (name === 'raid') {
+                    // walk into the alien camp to set off the alarm
+                    doneBefore(ZONE.crystal);
+                    const c = CHECKPOINTS[ZONE.crystal];
+                    stand(c.x, c.z, CAMP.x, CAMP.z);
+                } else if (name === 'rover') {
+                    // the camp is beaten and the rover lies upside down: hold E to flip it
+                    doneBefore(ZONE.plains);
+                    L.checkpoint = ZONE.crystal;
+                    M.roverFound = false;
+                    M.roverRode = false;
+                    if (R) { R.place(ROVER_SPOT.x, ROVER_SPOT.z, ROVER_SPOT.yaw, { flipped: true }); R.found = false; }
+                    stand(ROVER_SPOT.x + 2.5, ROVER_SPOT.z + 1.5, ROVER_SPOT.x, ROVER_SPOT.z);
+                } else if (name === 'jump') {
+                    // the foot of the launch ridge, the rover ready to go: full speed up the ridge to the mesa
+                    // (the rover on the ramp's center line, you a step to its left)
+                    this.plains('ridge');
+                    roverFound();
+                    g.debug.rover(P.pos.x, P.pos.z, P.yaw);
+                    P.spawn(P.pos.x - Math.cos(P.yaw) * 2.4, P.pos.z + Math.sin(P.yaw) * 2.4, P.yaw);
+                } else if (name === 'plains' || name === 'bikes') {
+                    // out on the Great Dust Plains with the rover ('bikes': right where the hover-bikers ride)
+                    if (name === 'bikes') { doneBefore(ZONE.plains); stand(-190, -515, -175, -505); } else this.plains('gate');
+                    roverFound();
+                    roverBeside();
+                } else if (name === 'ice') {
+                    // the frozen lake, with grenades to crack the ice over the thruster
+                    doneBefore(ZONE.frozen);
+                    stand(ICE_SLAB.x - 12, ICE_SLAB.z - 6, ICE_SLAB.x, ICE_SLAB.z);
+                    P.grenades = Math.max(P.grenades, 5);
+                }
+                return { name, pos: P.pos.toArray().map((v) => +v.toFixed(1)) };
             },
             // Where you are in the jump's own coordinates (u: meters past the ramp's lip, v: sideways)
             jumpUV() {

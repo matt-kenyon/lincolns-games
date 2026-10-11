@@ -1,0 +1,138 @@
+[
+ {
+  "url": "/stranded-on-mars/?test&quality=low"
+ },
+ {
+  "eval": "localStorage.clear(); window.T = { ok(c, m) { if (!c) throw new Error('CHECK FAILED: ' + m); return true; }, pick(label) { const b = [...document.querySelectorAll('.test-menu button')].find((x) => x.textContent === label); T.ok(b, 'button ' + label); b.click(); } }; ({ buttons: [...document.querySelectorAll('.test-menu button')].map((b) => b.textContent) })"
+ },
+ {
+  "eval": "T.pick('Supply crate'); 0"
+ },
+ {
+  "until": "game.state === 'play' && game.player.pos.z < -150",
+  "timeout": 20000
+ },
+ {
+  "eval": "const P = game.player; T.ok(Math.hypot(P.pos.x - 2, P.pos.z + 208) < 14, 'next to the Red Rock crate'); ({ pos: P.pos.toArray().map((v) => Math.round(v)) })"
+ },
+ {
+  "wait": 400
+ },
+ {
+  "shot": "test_crate.png"
+ },
+ {
+  "url": "/stranded-on-mars/?test&quality=low"
+ },
+ {
+  "eval": "window.T = { ok(c, m) { if (!c) throw new Error('CHECK FAILED: ' + m); return true; }, pick(label) { const b = [...document.querySelectorAll('.test-menu button')].find((x) => x.textContent === label); b.click(); } }; T.pick('Camp raid'); 0"
+ },
+ {
+  "until": "game.state === 'play' && game.player.pos.z < -250",
+  "timeout": 20000
+ },
+ {
+  "eval": "game.player.god = true; const M = game.level.missions; T.ok(!M.raid.triggered, 'alarm not set off yet'); for (let i = 0; i < 20 && !M.raid.triggered; i++) game.debug.simulate(0.5, { moveY: 1 }); T.ok(M.raid.triggered, 'walking in sets off the alarm'); ({ triggered: M.raid.triggered })"
+ },
+ {
+  "wait": 400
+ },
+ {
+  "shot": "test_raid.png"
+ },
+ {
+  "url": "/stranded-on-mars/?test&quality=low"
+ },
+ {
+  "eval": "window.T = { ok(c, m) { if (!c) throw new Error('CHECK FAILED: ' + m); return true; }, pick(label) { const b = [...document.querySelectorAll('.test-menu button')].find((x) => x.textContent === label); b.click(); } }; T.pick('Find the rover'); 0"
+ },
+ {
+  "until": "game.state === 'play' && game.player.pos.z < -300",
+  "timeout": 20000
+ },
+ {
+  "eval": "game.player.god = true; const R = game.rover; T.ok(R.flipped && !R.found, 'rover upside down, not found yet'); game.debug.simulate(0.3, {}); game.debug.simulate(2.5, { interactHeld: true }); game.debug.simulate(1.5, {}); T.ok(R.found && !R.flipped && game.level.missions.roverFound, 'Hold E flips it: found'); ({ found: R.found })"
+ },
+ {
+  "wait": 400
+ },
+ {
+  "shot": "test_rover.png"
+ },
+ {
+  "url": "/stranded-on-mars/?test&quality=low"
+ },
+ {
+  "eval": "window.T = { ok(c, m) { if (!c) throw new Error('CHECK FAILED: ' + m); return true; }, pick(label) { const b = [...document.querySelectorAll('.test-menu button')].find((x) => x.textContent === label); b.click(); } }; T.pick('Drive the plains'); 0"
+ },
+ {
+  "until": "game.state === 'play' && game.player.pos.z < -380",
+  "timeout": 20000
+ },
+ {
+  "eval": "game.player.god = true; const R = game.rover; T.ok(R.placed && R.found && !R.flipped, 'rover ready'); game.debug.simulate(0.2, {}); game.debug.simulate(0.1, { interact: true }); game.debug.simulate(0.5, {}); T.ok(R.driving, 'E gets in'); for (let i = 0; i < 8; i++) game.debug.simulate(0.5, { moveY: 1 }); ({ speed: +R.speed.toFixed(1), zone: game.level.zone })"
+ },
+ {
+  "wait": 400
+ },
+ {
+  "shot": "test_plains.png"
+ },
+ {
+  "url": "/stranded-on-mars/?test&quality=low"
+ },
+ {
+  "eval": "window.T = { ok(c, m) { if (!c) throw new Error('CHECK FAILED: ' + m); return true; }, pick(label) { const b = [...document.querySelectorAll('.test-menu button')].find((x) => x.textContent === label); b.click(); } }; T.pick('Mesa jump'); 0"
+ },
+ {
+  "until": "game.state === 'play' && game.player.pos.z < -400",
+  "timeout": 20000
+ },
+ {
+  "eval": "(async () => { game.player.god = true; const L = await import('./js/layout.js'); const J = L.JUMP; const R = game.rover, P = game.player; game.debug.simulate(0.2, {}); game.debug.simulate(0.1, { interact: true }); game.debug.simulate(0.5, {}); T.ok(R.driving, 'E gets in at the ridge'); const yaw = Math.atan2(-J.dir.x, -J.dir.z); let air = false, landed = null; for (let i = 0; i < 400 && !landed; i++) { P.yaw = yaw; P.pitch = -0.15; game.debug.simulate(0.05, { moveY: 1 }); const u = (R.pos.x - J.lip.x) * J.dir.x + (R.pos.z - J.lip.z) * J.dir.z; const g = game.world.groundAt(R.pos.x, R.pos.z); if (u > 0 && R.pos.y - g > 2) air = true; if (air && R.pos.y - g < 1.6 && u > 3) landed = { u: +u.toFixed(1), onMesa: g - J.base > L.MESA_HEIGHT - 1.5 }; } T.ok(landed && landed.onMesa, 'lands on the mesa'); return landed; })()"
+ },
+ {
+  "wait": 400
+ },
+ {
+  "shot": "test_jump.png"
+ },
+ {
+  "url": "/stranded-on-mars/?test&quality=low"
+ },
+ {
+  "eval": "window.T = { ok(c, m) { if (!c) throw new Error('CHECK FAILED: ' + m); return true; }, pick(label) { const b = [...document.querySelectorAll('.test-menu button')].find((x) => x.textContent === label); b.click(); } }; T.pick('Hover-bikers'); 0"
+ },
+ {
+  "until": "game.state === 'play' && game.player.pos.z < -400",
+  "timeout": 20000
+ },
+ {
+  "eval": "game.player.god = true; game.debug.simulate(4, {}); const P = game.player; const bikes = game.aliens.list.filter((a) => a.T.bike && !a.dead); const near = bikes.map((b) => Math.round(Math.hypot(b.pos.x - P.pos.x, b.pos.z - P.pos.z))); T.ok(bikes.length && game.aliens.anyInCombat(), 'the hover-bikers come after you'); ({ near, rover: game.rover.placed })"
+ },
+ {
+  "wait": 400
+ },
+ {
+  "shot": "test_bikes.png"
+ },
+ {
+  "url": "/stranded-on-mars/?test&quality=low"
+ },
+ {
+  "eval": "window.T = { ok(c, m) { if (!c) throw new Error('CHECK FAILED: ' + m); return true; }, pick(label) { const b = [...document.querySelectorAll('.test-menu button')].find((x) => x.textContent === label); b.click(); } }; T.pick('Frozen lake'); 0"
+ },
+ {
+  "until": "game.state === 'play' && game.player.pos.z < -460",
+  "timeout": 20000
+ },
+ {
+  "eval": "game.player.god = true; const S = game.level.missions.ice; T.ok(game.player.grenades >= 5 && !S.broken, 'grenades in hand, ice whole'); game.debug.crackIce(3); game.debug.simulate(1, {}); T.ok(S.broken, 'three blasts break it'); ({ hits: S.hits, broken: S.broken, grenades: game.player.grenades })"
+ },
+ {
+  "wait": 400
+ },
+ {
+  "shot": "test_ice.png"
+ }
+]
