@@ -125,13 +125,13 @@ export const REGIONS = {
 export const PLAINS = {
     // natural rock ramps: tilted slabs you can drive up and launch off. yaw = the way up (0 = -Z)
     rockRamps: [
-        { x: -150, z: -560, yaw: 2.4, len: 16, halfW: 5, h: 3.2 },
+        { x: -178, z: -575, yaw: 1.9, len: 16, halfW: 5, h: 3.2 },
         { x: -296, z: -560, yaw: -0.4, len: 18, halfW: 6, h: 3.6 },
         { x: -280, z: -672, yaw: 1.2, len: 14, halfW: 5, h: 2.8 },
     ],
     // alien-built metal ramps (the launch ridge's kicker is a third one)
     metalRamps: [
-        { x: -206, z: -520, yaw: -2.2, len: 12, halfW: 4, h: 3.4 },
+        { x: -168, z: -488, yaw: 0, len: 12, halfW: 4, h: 3.4 },     // jump the crater north of it
         { x: -170, z: -606, yaw: 0.9, len: 11, halfW: 4, h: 3 },
     ],
     // stone arches to drive through: center, yaw (the way through), radius

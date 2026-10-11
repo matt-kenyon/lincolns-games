@@ -24,7 +24,7 @@ function prepRamp(r, metal) {
         ...r, metal, dx, dz, sx: -dz, sz: dx,
         x0: r.x - dx * r.len / 2, z0: r.z - dz * r.len / 2,
         // the heightfield wedge sits a little inside a metal ramp's mesh (so its 2 m grid edges stay hidden)
-        hw: metal ? r.halfW - 0.7 : r.halfW, sideW: metal ? 0.8 : 1.6, endW: metal ? 0.8 : 1.3,
+        hw: r.halfW - 0.7, sideW: 0.8, endW: 0.8,
         // the ground under a metal ramp is leveled to this height (so the mesh and the terrain line up)
         base: pathQuery(r.x, r.z, {}).floor,
     };
@@ -41,7 +41,6 @@ function rampH(r, x, z) {
     const v = Math.abs(dx * r.sx + dz * r.sz);
     if (v > r.hw + r.sideW + 1) return 0;
     let h = r.h * clamp(u / r.len, 0, 1);
-    if (!r.metal) h += perlin2(x * 0.4, z * 0.4) * 0.12 * smoothstep(0, 3, u);
     h *= 1 - smoothstep(r.len, r.len + r.endW, u);
     h *= 1 - smoothstep(r.hw, r.hw + r.sideW, v);
     return Math.max(0, h);
@@ -159,7 +158,7 @@ export function plainsShape(x, z, floor, q, out) {
         const d = Math.hypot(x - r.x, z - r.z);
         const k = 1 - smoothstep(r.len * 0.6 + 4, r.len * 0.6 + 18, d);
         calm = Math.max(calm, k);
-        if (r.metal && k > 0) f = lerp(f, r.base, (1 - smoothstep(r.len * 0.6 + 2, r.len * 0.6 + 10, d)) * w);
+        if (k > 0) f = lerp(f, r.base, (1 - smoothstep(r.len * 0.6 + 2, r.len * 0.6 + 10, d)) * w);
     }
     for (const b of PLAINS.buttes) calm = Math.max(calm, 1 - smoothstep(b.r + 4, b.r + 16, Math.hypot(x - b.x, z - b.z)));
     for (const a of PLAINS.arches) calm = Math.max(calm, 1 - smoothstep(a.r + 4, a.r + 14, Math.hypot(x - a.x, z - a.z)));
@@ -218,14 +217,16 @@ export const PLAINS_BOX = (() => {
 // ------------------------------------------------------------
 const C_METAL = 0x4a2a6a, C_METAL2 = 0x5c2f8a, C_GOLD = 0xf2c14e, C_GLOW = 0x6ff0ff, C_PINK = 0xff7cf0;
 
-// An alien metal ramp: a plated deck with a gold rim, glowing chevrons and struts down to the ground.
+// A ramp: an alien metal one (a plated deck with a gold rim and glowing chevrons) or a natural slab of rock.
 // u along the ramp from its low end (0) to the lip (len), rising h. Built in local space (deck along -Z).
-function metalRampGeo(len, halfW, h, chevrons = 3) {
+function rampGeo(len, halfW, h, chevrons = 3, rock = false) {
     const b = new GeoBuilder();
     const ang = Math.atan2(h, len);
     const L = Math.hypot(len, h);
+    const deck = rock ? 0xc8643f : C_METAL2, side = rock ? 0x8f3b26 : C_METAL;
     // deck plate (tilted box)
-    b.add(new THREE.BoxGeometry(halfW * 2, 0.22, L), C_METAL2, { p: [0, h / 2 - 0.08, -len / 2], r: [ang, 0, 0] });
+    b.add(new THREE.BoxGeometry(halfW * 2, rock ? 0.5 : 0.22, L, rock ? 4 : 1, 1, rock ? 5 : 1), deck,
+        { p: [0, h / 2 - (rock ? 0.2 : 0.08), -len / 2], r: [ang, 0, 0] });
     // side skirts: a sloped plate each side from the deck edge out to the ground (hides the terrain under it)
     for (const s of [-1, 1]) {
         const o = halfW + Math.max(0.5, h * 0.95); // where the skirt meets the ground, at the high end
@@ -233,11 +234,39 @@ function metalRampGeo(len, halfW, h, chevrons = 3) {
         const tri = s > 0 ? [A, C, B, A, D, C] : [A, B, C, A, C, D];
         const sk = new THREE.BufferGeometry();
         sk.setAttribute('position', new THREE.Float32BufferAttribute(tri.flat(), 3));
-        sk.computeVertexNormals();
-        b.add(sk, C_METAL, {}, 0, true);
+        // face normals, pointing out and up
+        const nrm = [];
+        for (let t = 0; t < 2; t++) {
+            const [p, q, r] = [tri[t * 3], tri[t * 3 + 1], tri[t * 3 + 2]];
+            const n = new THREE.Vector3(q[0] - p[0], q[1] - p[1], q[2] - p[2])
+                .cross(new THREE.Vector3(r[0] - p[0], r[1] - p[1], r[2] - p[2])).normalize();
+            if (n.x * s < 0) n.negate();
+            for (let k = 0; k < 3; k++) nrm.push(n.x, n.y, n.z);
+        }
+        sk.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+        b.add(sk, side);
     }
     // the end wall under the lip
-    b.add(new THREE.BoxGeometry(halfW * 2, h, 0.3), C_METAL, { p: [0, h / 2 - 0.1, -len - 0.1] });
+    b.add(new THREE.BoxGeometry(halfW * 2, h, 0.3), side, { p: [0, h / 2 - 0.1, -len - 0.1] });
+    if (rock) {
+        // roughen it up: chunky stones along the edges and the lip
+        const g = b.build();
+        const rb = new GeoBuilder();
+        const P = g.attributes.position;
+        for (let i = 0; i < P.count; i++) {
+            const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+            if (y > 0.3) P.setY(i, y + perlin2(x * 0.9 + 3, z * 0.9) * 0.18);
+        }
+        g.computeVertexNormals();
+        rb.chunks.push({ g, col: g.attributes.color.array, gl: g.attributes.glow.array });
+        const rng = makeRng(Math.round(len * 31 + h * 7));
+        for (let i = 0; i < 7; i++) {
+            const t = rng.range(0.15, 1), sd = rng.sign();
+            rb.add(new THREE.DodecahedronGeometry(rng.range(0.35, 0.7), 0), rng() < 0.5 ? 0xb4563a : 0xe39c6b,
+                { p: [sd * (halfW + rng.range(-0.1, 0.4)), h * t * 0.7, -len * t], s: [1, 0.7, 1], r: [rng() * 3, rng() * 3, 0] }, 0, true);
+        }
+        return rb.build();
+    }
     // gold rails along the edges
     for (const s of [-1, 1]) b.add(new THREE.BoxGeometry(0.26, 0.3, L), C_GOLD, { p: [s * (halfW - 0.05), h / 2 + 0.06, -len / 2], r: [ang, 0, 0] });
     // glowing chevrons pointing up the ramp
@@ -286,7 +315,7 @@ export function buildPlains(world) {
     // the metal ramps, including the kicker at the end of the launch ridge
     const kick = { x: J.lip.x - J.dir.x * J.kickLen / 2, z: J.lip.z - J.dir.z * J.kickLen / 2 };
     const metal = [
-        ...RAMPS.filter((r) => r.metal).map((r) => ({ x0: r.x0, z0: r.z0, yaw: r.yaw, len: r.len, halfW: r.halfW, h: r.h, y: r.base })),
+        ...RAMPS.map((r) => ({ x0: r.x0, z0: r.z0, yaw: r.yaw, len: r.len, halfW: r.halfW, h: r.h, y: r.base, rock: !r.metal })),
         {
             x0: J.lip.x - J.dir.x * J.kickLen, z0: J.lip.z - J.dir.z * J.kickLen, yaw: Math.atan2(-J.dir.x, -J.dir.z),
             len: J.kickLen, halfW: J.kickHalfW, h: J.kickH, y: J.base + J.crestH, chev: 2,
@@ -294,10 +323,10 @@ export function buildPlains(world) {
     ];
     const m4 = new THREE.Matrix4();
     for (const r of metal) {
-        const g = metalRampGeo(r.len, r.halfW, r.h, r.chev || 3);
+        const g = rampGeo(r.len, r.halfW, r.h, r.chev || 3, r.rock);
         m4.makeRotationY(r.yaw).setPosition(r.x0, r.y + 0.04, r.z0);
         g.applyMatrix4(m4);
-        parts.chunks.push({ g, col: g.attributes.color.array, gl: g.attributes.glow.array });
+        (r.rock ? rocks : parts).chunks.push({ g, col: g.attributes.color.array, gl: g.attributes.glow.array });
     }
     // alien posts with glowing tips beside the kicker (they say "jump here!")
     for (const s of [-1, 1]) {

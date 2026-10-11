@@ -34,6 +34,7 @@ npx playwright install chromium  # downloads the test browser
    BROWSER=webkit node run.mjs tests/full.json  # Safari's engine (needs `npx playwright install webkit` once)
    BROWSER=chrome node run.mjs tests/full.json  # the Google Chrome installed on this Mac
    BROWSER=webkit node fps.mjs                  # real frame rate in every area, MacBook-sized window at 2x
+   BROWSER=chrome node boot-time.mjs 3          # how long the game takes to load (fresh browser each run)
    BROWSER=chrome node cutscene-fps.mjs         # every cutscene in real time: slow frames per shot (see below)
    ```
 
@@ -70,7 +71,7 @@ MAP_SCALE=3 MAP_BOX=-380,-740,-60,-380 node map.mjs out/plains-map.png   # zoom 
 | `boss-shots.json` | Screenshots of each boss attack, rage mode and the death |
 | `rooms.json` | One screenshot of every mothership room |
 | `finale.json` | Screenshots of the escape pod ending and the end screen |
-| `perf.json` | Draw calls and triangles in each area of both levels |
+| `perf.json` | Draw calls and triangles in each area of both levels (including the camp, the plains and the frozen crater) |
 | `astronaut.json` | Lincoln (the hero) in every cutscene shot he's in, plus a turntable of the model and his poses (`turntable.js`), and the first-person glove + blaster on Mars and the mothership. `turntable.js` also has `gunViews()`, the blaster from four angles |
 
 ## Combat effects, frame by frame
