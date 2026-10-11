@@ -4,7 +4,8 @@
 // ============================================================
 
 import * as THREE from 'three';
-import { WORLD, pathQuery, CRATERS, ICE_LAKE, REGIONS } from './layout.js';
+import { WORLD, pathQuery, CRATERS, ICE_LAKE, ICE_SLAB, REGIONS } from './layout.js';
+import { plainsShape, PLAINS_BOX } from './plains.js';
 import { fbm2, perlin2, ridged2, smoothstep, clamp, lerp } from './util.js';
 import { toonMaterial } from './toon.js';
 
@@ -23,6 +24,9 @@ export const PALETTE = {
     iceRock: C(0x9fb4cf),
     scorch: C(0x5a3530),
     ash: C(0x8a5a48),
+    sand: C(0xf0b183),
+    duneShade: C(0xc66a45),
+    mesaTop: C(0xdc8d5c),
 };
 
 export class Terrain {
@@ -37,7 +41,10 @@ export class Terrain {
         this.H = this.nz + 1;
         this.h = new Float32Array(this.W * this.H);
         this.sd = new Float32Array(this.W * this.H);
+        this.rock = new Float32Array(this.W * this.H); // 0..1: paint as rock (plains set pieces)
+        this.dune = new Float32Array(this.W * this.H); // -1..1: dune shading
         this._q = {};
+        this._aux = { rock: 0, dune: 0 };
         this.meshes = [];
     }
 
@@ -52,6 +59,11 @@ export class Terrain {
             + perlin2(x * 0.055, z * 0.055) * 0.3;
         // wind ripples in the dust
         floor += Math.sin(x * 0.21 + z * 0.08 + perlin2(x * 0.02, z * 0.02) * 5) * 0.06;
+        // the Great Dust Plains: dunes, the launch ridge, the mesa, ramps, buttes
+        const B = PLAINS_BOX, aux = this._aux;
+        aux.rock = 0;
+        aux.dune = 0;
+        if (x > B.x0 && x < B.x1 && z > B.z0 && z < B.z1) floor = plainsShape(x, z, floor, q, aux);
 
         let h = floor;
         const wallW = 15;
@@ -95,6 +107,15 @@ export class Terrain {
             if (ld < L.r + 9) {
                 const t = smoothstep(L.r, L.r + 9, ld);
                 h = lerp(L.level, h, t);
+                // the pit under the ice slab the thruster is frozen in
+                const S = ICE_SLAB;
+                const sl = Math.hypot(x - S.x, z - S.z);
+                // (the terrain grid is coarse, so the pit is dug wider than the hole; the ice around the hole is
+                // stood on through colliders, and missions.js lines the hole with its own ice well)
+                if (sl < S.r + 4.5) {
+                    h -= (S.depth + 0.6) * (1 - smoothstep(S.r + 2, S.r + 4.2, sl));
+                    this._aux.rock = -1;
+                }
             }
         }
         return h;
@@ -109,6 +130,8 @@ export class Terrain {
                 const idx = j * W + i;
                 this.h[idx] = this.rawHeight(x, z);
                 this.sd[idx] = this._q.sd;
+                this.rock[idx] = this._aux.rock;
+                this.dune[idx] = this._aux.dune;
             }
             if (onProgress && (j % 64 === 0)) onProgress(j / H);
         }
@@ -126,7 +149,7 @@ export class Terrain {
         return out;
     }
 
-    vertexColor(x, z, y, ny, sd, out) {
+    vertexColor(x, z, y, ny, sd, out, rock = 0, dune = 0) {
         const P = PALETTE;
         const n1 = fbm2(x * 0.028, z * 0.028, 2);
         const n2 = perlin2(x * 0.13, z * 0.13);
@@ -135,8 +158,15 @@ export class Terrain {
         out.lerp(P.dustLight, smoothstep(0.05, 0.45, n1) * 0.8);
         out.lerp(P.dustDark, smoothstep(0.1, 0.5, -n1) * 0.7);
 
+        // the plains: pale sand on the dune crests, warmer in the hollows
+        if (dune !== 0) {
+            out.lerp(dune > 0 ? P.sand : P.duneShade, Math.abs(dune) * 0.6);
+        }
+
         // layered rock on steep faces
         const steep = 1 - smoothstep(0.6, 0.86, ny);
+        // flat tops of the mesa, the ridge and the ramps
+        if (rock > 0) out.lerp(P.mesaTop, rock * (1 - steep) * 0.75);
         if (steep > 0) {
             const band = Math.floor((y + n2 * 1.1) / 2.3);
             const s = P.strata[((band % 6) + 6) % 6];
@@ -167,6 +197,8 @@ export class Terrain {
             out.lerp(P.frostBlue, w * (1 - steep) * shore * 0.35);
             out.lerp(P.frost, w * (1 - steep) * Math.max(patch * 0.85, shore * 0.7));
         }
+        // the pit under the ice slab: deep icy blue
+        if (rock < 0) out.lerp(C(0x3d6f9e), 0.8);
         d = Math.hypot(x - R.crash.x, z - R.crash.z);
         if (d < R.crash.r) {
             const w = smoothstep(R.crash.r, R.crash.r * 0.3, d);
@@ -190,7 +222,7 @@ export class Terrain {
                 const idx = j * W + i;
                 this.gridNormal(i, j, nrm);
                 N[idx * 3] = nrm.x; N[idx * 3 + 1] = nrm.y; N[idx * 3 + 2] = nrm.z;
-                this.vertexColor(x0 + i * cell, z0 + j * cell, h[idx], nrm.y, sd[idx], col);
+                this.vertexColor(x0 + i * cell, z0 + j * cell, h[idx], nrm.y, sd[idx], col, this.rock[idx], this.dune[idx]);
                 COL[idx * 3] = col.r; COL[idx * 3 + 1] = col.g; COL[idx * 3 + 2] = col.b;
             }
         }

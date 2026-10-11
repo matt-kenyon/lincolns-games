@@ -43,14 +43,26 @@ image:
 
 ```sh
 node grid.mjs out/sheet.png 3 out/c4_reveal.png out/c5_pull.png out/c6_press.png
+BROWSER=chrome node grid.mjs ...     # use the installed Chrome instead of Playwright's Chromium
+```
+
+`map.mjs` draws a top-down map of Mars with the path, force fields, checkpoints, parts, aliens and set pieces, each
+walkable spot tinted by the area the game thinks it's in, and checks that the force fields really seal each area
+(it floods the walkable ground from the start, opening one force field at a time):
+
+```sh
+node map.mjs                                                    # out/mars-map.png
+MAP_SCALE=3 MAP_BOX=-380,-740,-60,-380 node map.mjs out/plains-map.png   # zoom in on the plains
 ```
 
 ## The tests
 
 | Test | What it checks |
 | --- | --- |
-| `full.json` | The whole game: Mars intro, a fight, a part pickup, repair, the escape and capture cutscene, all mothership rooms and waves, GLORBAX, the escape pod, the end screen |
-| `regress.json` | Dying and respawning on both levels, CONTINUE on Mars and on level 2 (the "CONTINUE: LEVEL 2" label), the Mars to level 2 handoff |
+| `full.json` | The whole game: Mars intro, a fight, every ship part the way a player gets it (the camp raid fight and cage, the wing on the mesa, real grenades cracking the ice), the supply crates, repair, the escape and capture cutscene, all mothership rooms and waves, GLORBAX, the escape pod, the end screen |
+| `regress.json` | Dying and respawning on both levels (and during the camp raid), CONTINUE on Mars and on level 2 (the "CONTINUE: LEVEL 2" label), the Mars to level 2 handoff, old (v1, five-area) Mars saves migrating to the new route |
+| `plains.json` | The Great Dust Plains on foot: no way onto the mesa or its ledge path without the rover (jumps off the ramp at every timing, climbing every side), the way down works, the plains can be crossed on foot, the force field holds until you have the wing |
+| `plains-shots.json`, `quests-shots.json`, `plains-aerial.json` | Screenshots of the plains (ridge, kicker, mesa, ramps, arches, dust devils), the quests (supply crate, camp alarm and cage, the rover spot, the ice slab cracking) and the plains from the air |
 | `chapters.json` | The title screen's chapter select (arrow keys + Enter) and Chapter 2 starting from the escape off Mars |
 | `boss-balance.json` | Simulated boss fights on every difficulty, standing still and dodging (prints boss HP / player health every 5s) |
 | `capture-shots.json` | Screenshots through the capture cutscene (lurch, reveal, tractor beam, cockpit, hangar, KA-BOOM) |

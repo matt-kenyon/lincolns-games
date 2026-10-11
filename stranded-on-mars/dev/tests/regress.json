@@ -31,5 +31,38 @@
  {"shot": "rg_cont2.png"},
  {"eval": "game.player.spawn(0,-10,0); game.debug.simulate(1.5,{},true); game.player.invuln=0; game.player.shield=0; game.player.hurt(99, new game.player.pos.constructor(1,0,0)); ({state: game.state})"},
  {"until": "game.state==='play'", "timeout": 120000},
- {"eval": "({state: game.state, hp: game.player.health, pos: game.player.pos.toArray().map(v=>+v.toFixed(1)), alive0: game.aliens.aliveInZone(0), deaths: game.stats.deaths})"}
+ {"eval": "({state: game.state, hp: game.player.health, pos: game.player.pos.toArray().map(v=>+v.toFixed(1)), alive0: game.aliens.aliveInZone(0), deaths: game.stats.deaths})"},
+
+ {"url": "/stranded-on-mars/?debug&quality=low"},
+ {"eval": "localStorage.removeItem('strandedOnMars.save.v1'); window.need = (ok, what) => { if (!ok) throw new Error('FAILED: ' + what); return true; }; game.newGame(); game.debug.skipIntro(); 0"},
+ {"until": "game.state==='play'", "timeout": 30000},
+ {"eval": "game.debug.raid(); game.player.spawn(-41, -339, 1.6); game.debug.simulate(2.5, {}); const raid = game.aliens.byZone[2].filter(a => a.wave === 1); const awake = raid.filter(a => !a.dormant).length; raid[0].die(); game.debug.simulate(1, {}); need(awake === 4, 'raid aliens rushed out'); ({awake, alive: game.aliens.aliveInZone(2)})"},
+ {"eval": "game.player.god=false; game.player.invuln=0; game.player.shield=0; game.player.hurt(99, new game.player.pos.constructor(1,0,0)); ({state: game.state})"},
+ {"until": "game.state==='play'", "timeout": 120000},
+ {"eval": "const R = game.level.missions.raid; const raid = game.aliens.byZone[2].filter(a => a.wave === 1); need(!R.triggered && raid.filter(a => !a.dead).every(a => a.dormant), 'raid resets on respawn'); need(raid[0].dead, 'beaten raid alien stays beaten'); game.player.spawn(-41, -339, 1.6); game.debug.simulate(1.5, {}); need(R.triggered, 'alarm goes off again'); ({cp: game.level.checkpoint, alive: game.aliens.aliveInZone(2), awake: raid.filter(a => !a.dormant && !a.dead).length})"},
+
+ {"eval": "localStorage.setItem('strandedOnMars.save.v1', JSON.stringify({v:1, diff:'normal', cp:3, have:{tailFin:true, wing:true, fuelTank:true}, gates:[true,true,true,false], dome:false, captain:false, stats:{aliens:20, deaths:1, shots:300, time:400}})); 0"},
+ {"url": "/stranded-on-mars/?debug&quality=low"},
+ {"eval": "window.need = (ok, what) => { if (!ok) throw new Error('FAILED: ' + what); return true; }; need(!document.getElementById('btn-continue').classList.contains('hidden'), 'old v1 save shows CONTINUE'); 0"},
+ {"click": "#btn-continue"},
+ {"wait": 500},
+ {"eval": "const L = game.level; need(L.checkpoint === 4 && L.currentZone() === 4, 'old frozen-crater checkpoint -> new 4'); need(JSON.stringify(game.world.gates.map(g => g.open)) === '[true,true,true,true,false]', 'gates migrated'); need(L.missions.raid.done && !L.partPickups.wing && !L.partPickups.fuelTank, 'parts + camp migrated'); need(!L.missions.ice.broken, 'thruster still frozen'); game.debug.simulate(0.3, {}); L.save(); const s = JSON.parse(localStorage.getItem('strandedOnMars.save.v1')); need(s.v === 2 && s.cp === 4, 'saved as v2'); ({cp: L.checkpoint, zone: L.zone, pos: game.player.pos.toArray().map(v=>+v.toFixed(0)), gates: game.world.gates.map(g => g.open), stats: game.stats.aliens, obj: document.getElementById('objective').textContent})"},
+
+ {"eval": "localStorage.setItem('strandedOnMars.save.v1', JSON.stringify({v:1, diff:'easy', cp:2, have:{tailFin:true}, gates:[true,true,false,false], dome:false, captain:false, stats:{aliens:8, deaths:0, shots:90, time:200}})); 0"},
+ {"url": "/stranded-on-mars/?debug&quality=low"},
+ {"click": "#btn-continue"},
+ {"wait": 500},
+ {"eval": "window.need = (ok, what) => { if (!ok) throw new Error('FAILED: ' + what); return true; }; const L = game.level; need(L.checkpoint === 2 && game.diffKey === 'easy', 'crystal forest checkpoint'); need(JSON.stringify(game.world.gates.map(g => g.open)) === '[true,true,false,false,false]', 'gates migrated'); need(!L.missions.raid.done && L.partPickups.fuelTank.locked && !!L.partPickups.wing, 'camp still to raid, wing on the mesa'); ({cp: L.checkpoint, zone: L.currentZone(), obj: document.getElementById('objective').textContent})"},
+
+ {"eval": "localStorage.setItem('strandedOnMars.save.v1', JSON.stringify({v:1, diff:'normal', cp:4, have:{tailFin:true, wing:true, fuelTank:true, thruster:true}, gates:[true,true,true,true], dome:false, captain:false, stats:{aliens:30, deaths:2, shots:500, time:700}})); 0"},
+ {"url": "/stranded-on-mars/?debug&quality=low"},
+ {"click": "#btn-continue"},
+ {"wait": 500},
+ {"eval": "window.need = (ok, what) => { if (!ok) throw new Error('FAILED: ' + what); return true; }; const L = game.level; need(L.checkpoint === 5 && L.currentZone() === 5, 'crash site checkpoint'); need(game.world.gates.every(g => g.open), 'all gates open'); need(L.missions.ice.broken && !L.partPickups.thruster, 'thruster already found'); need(game.world.dome.on, 'captain still to beat'); ({cp: L.checkpoint, have: Object.keys(L.have), obj: document.getElementById('objective').textContent})"},
+
+ {"eval": "localStorage.setItem('strandedOnMars.save.v1', JSON.stringify({v:1, diff:'normal', cp:1, have:{tailFin:true, wing:true}, gates:[true,false,false,false], dome:false, captain:false, stats:{aliens:5, deaths:0, shots:60, time:150}})); 0"},
+ {"url": "/stranded-on-mars/?debug&quality=low"},
+ {"click": "#btn-continue"},
+ {"wait": 500},
+ {"eval": "window.need = (ok, what) => { if (!ok) throw new Error('FAILED: ' + what); return true; }; const L = game.level; need(L.checkpoint === 1 && !L.partPickups.wing && L.have.wing, 'old wing kept'); game.debug.plains('gate'); game.debug.simulate(0.3, {}); need(game.world.gates[3].open, 'plains force field opens for a wing you already have'); ({cp: L.checkpoint, gates: game.world.gates.map(g => g.open)})"}
 ]

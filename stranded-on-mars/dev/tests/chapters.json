@@ -17,7 +17,7 @@
  {"wait": 100},
  {"eval": "({state: game.state})"},
  {"until": "game.state==='outro'", "timeout": 60000},
- {"eval": "({state: game.state, idx: game.cine.idx, save: JSON.parse(localStorage.getItem('strandedOnMars.save.v1')).stage, dome: game.stages.mars.world.dome.on, parts: Object.keys(game.stages.mars.level.installed).length})"},
+ {"eval": "({state: game.state, idx: game.cine.idx, save: JSON.parse(localStorage.getItem('strandedOnMars.save.v1')).stage, dome: game.stages.mars.world.dome.on, parts: Object.keys(game.stages.mars.level.installed).length, cage: game.stages.mars.level.missions.raid.done, ice: game.stages.mars.level.missions.ice.broken, gates: game.stages.mars.world.gates.every(g => g.open)})"},
  {"wait": 1500},
  {"shot": "ch_out1.png"},
  {"eval": "game.debug.cineShot(1, 1.2); 0"},

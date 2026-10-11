@@ -6,11 +6,12 @@ import * as THREE from 'three';
 import { Terrain, Colliders } from './terrain.js';
 import { toonMaterial, toonRamp, GeoBuilder, vcMat, addOutline, glowSprite, shared } from './toon.js';
 import {
-    PATH, GATES, GATE_INDICES, CAMP, ARCH, TOWER, ICE_LAKE, REGIONS, PART_SPOTS, ZONES, SHIP,
-    pathQuery, pathPointAt, PATH_LENGTH, START, WORLD,
+    PATH, GATES, GATE_INDICES, CAMP, ARCH, TOWER, ICE_LAKE, ICE_SLAB, REGIONS, PART_SPOTS, ZONES, SHIP,
+    pathQuery, pathPointAt, PATH_LENGTH, START, WORLD, CRATES, ROVER_SPOT,
 } from './layout.js';
 import { makeRng, fbm2, perlin2, smoothstep, clamp, lerp, rand } from './util.js';
 import { buildShip } from './ship.js';
+import { buildPlains, plainsKeepClear } from './plains.js';
 
 export const SUN_DIR = new THREE.Vector3(-0.5, 0.62, 0.6).normalize();
 export const SKY = {
@@ -306,6 +307,10 @@ export function shieldMaterial(color, scaleU, scaleV) {
 }
 
 const _q = {};
+// Around the ice lake's slab the terrain is dug out (so you can look down into the ice and see the thruster);
+// groundAt() keeps the ground at the ice's surface there instead
+const ICE_COVER_R2 = (ICE_SLAB.r + 4.5) ** 2;
+const _up = new THREE.Vector3(0, 1, 0);
 
 // ============================================================
 export class World {
@@ -317,6 +322,7 @@ export class World {
         this.gates = [];
         this.emissives = [];
         this.time = 0;
+        this.slabTop = ICE_LAKE.level + 0.45; // the top of the ice slab (missions.js lowers it once it's broken)
     }
 
     build(progress = () => {}) {
@@ -337,7 +343,10 @@ export class World {
     }
 
     groundAt(x, z) {
-        return this.terrain.heightAt(x, z);
+        const h = this.terrain.heightAt(x, z);
+        const dx = x - ICE_SLAB.x, dz = z - ICE_SLAB.z, d2 = dx * dx + dz * dz;
+        if (d2 > ICE_COVER_R2) return h;
+        return d2 < ICE_SLAB.r * ICE_SLAB.r ? this.slabTop : Math.max(h, ICE_LAKE.level);
     }
 
     // --------------------------------------------------------
@@ -349,6 +358,8 @@ export class World {
     }
 
     normalAt(x, z, out) {
+        const dx = x - ICE_SLAB.x, dz = z - ICE_SLAB.z;
+        if (dx * dx + dz * dz < ICE_COVER_R2) return (out || new THREE.Vector3()).copy(_up);
         return this.terrain.normalAt(x, z, out);
     }
 
@@ -387,7 +398,7 @@ export class World {
 
     // Where something flying from a to b hits the ground (or null)
     solidHit(a, b) {
-        const gy = this.terrain.heightAt(b.x, b.z);
+        const gy = this.groundAt(b.x, b.z);
         return b.y < gy ? { x: b.x, y: gy + 0.05, z: b.z, dust: true } : null;
     }
 
@@ -581,7 +592,7 @@ export class World {
         const haze = new THREE.Color(SKY.horizon);
         const lit = new THREE.Color(0xd98a64);
         const shade = new THREE.Color(0x9a6a8a);
-        const center = new THREE.Vector3(0, 0, -330);
+        const center = new THREE.Vector3(-80, 0, -330);
         const pos = [], col = [];
         const tmpC = new THREE.Color();
         const addMesh = (geo, hazeAmt) => {
@@ -668,6 +679,7 @@ export class World {
         this.buildIceLake();
         this.buildTower();
         this.buildCrystalSpires();
+        this.plains = buildPlains(this);
     }
 
     addStatic(mesh, outline = true, thick = 0.003) {
@@ -784,7 +796,7 @@ export class World {
         for (let i = 0; i < 7; i++) {
             const a = rng() * Math.PI * 2, d = rng.range(5, 17);
             const x = C.x + Math.cos(a) * d, z = C.z + Math.sin(a) * d;
-            if (Math.hypot(x - PART_SPOTS.fuelTank.x, z - PART_SPOTS.fuelTank.z) < 4) continue;
+            if (Math.hypot(x - PART_SPOTS.fuelTank.x, z - PART_SPOTS.fuelTank.z) < 5) continue;
             const b = new GeoBuilder();
             b.add(new THREE.CylinderGeometry(0.7, 0.7, 1.3, 6), 0x5c2f8a, { p: [0, 0.65, 0] });
             b.add(new THREE.CylinderGeometry(0.72, 0.72, 0.16, 6), 0x6ff0ff, { p: [0, 0.65, 0] }, 1.0);
@@ -856,10 +868,17 @@ export class World {
         }
         const tex = new THREE.CanvasTexture(c);
         tex.colorSpace = THREE.SRGBColorSpace;
-        const ice = new THREE.Mesh(
-            new THREE.CircleGeometry(L.r + 2, 56),
-            new THREE.MeshToonMaterial({ map: tex, gradientMap: toonRamp() }),
-        );
+        // the lake with a round hole where the thruster's ice slab is
+        const R = L.r + 2;
+        const shape = new THREE.Shape();
+        shape.absarc(0, 0, R, 0, Math.PI * 2, false);
+        const hole = new THREE.Path();
+        hole.absarc(ICE_SLAB.x - L.x, -(ICE_SLAB.z - L.z), ICE_SLAB.r, 0, Math.PI * 2, true);
+        shape.holes.push(hole);
+        const lakeGeo = new THREE.ShapeGeometry(shape, 56);
+        const uvs = lakeGeo.attributes.uv, lp = lakeGeo.attributes.position;
+        for (let i = 0; i < uvs.count; i++) uvs.setXY(i, (lp.getX(i) + R) / (2 * R), (lp.getY(i) + R) / (2 * R));
+        const ice = new THREE.Mesh(lakeGeo, new THREE.MeshToonMaterial({ map: tex, gradientMap: toonRamp() }));
         ice.rotation.x = -Math.PI / 2;
         ice.position.set(L.x, L.level + 0.04, L.z);
         ice.receiveShadow = true;
@@ -934,7 +953,9 @@ export class World {
             [SHIP.x, SHIP.z, 20],
             [TOWER.x, TOWER.z, 5],
             [ICE_LAKE.x, ICE_LAKE.z, ICE_LAKE.r + 2],
+            [ROVER_SPOT.x, ROVER_SPOT.z, 5],
         ];
+        for (const c of CRATES) keep.push([c.x, c.z, 2.5]);
         for (const p of Object.values(PART_SPOTS)) keep.push([p.x, p.z, 5]);
         for (const zn of ZONES) for (const a of zn.aliens) keep.push([a.x, a.z, 2.5]);
         for (const [kx, kz, kr] of keep) if (Math.hypot(x - kx, z - kz) < kr + r) return false;
@@ -944,6 +965,7 @@ export class World {
             const along = dx * g.tx + dz * g.tz;
             if (Math.abs(along) < 7 + r && Math.abs(dx * g.nx + dz * g.nz) < g.halfSpan + 2) return false;
         }
+        if (plainsKeepClear(x, z, r)) return false;
         const aq = pathQuery(x, z, {});
         if (Math.hypot(x - ARCH.x, z - ARCH.z) < 4) return false;
         return aq.sd < 4;
@@ -953,6 +975,7 @@ export class World {
         const R = REGIONS;
         if (Math.hypot(x - R.crystal.x, z - R.crystal.z) < R.crystal.r * 0.85) return 'crystal';
         if (Math.hypot(x - R.frozen.x, z - R.frozen.z) < R.frozen.r * 0.85) return 'frozen';
+        if (Math.hypot(x - R.plains.x, z - R.plains.z) < R.plains.r) return 'plains';
         return 'desert';
     }
 
@@ -1008,11 +1031,15 @@ export class World {
             return [p.x - p.tz * off, p.z + p.tx * off];
         };
 
+        // the scatter is spread along the path: keep the old density per meter now that it's longer
+        const dens = PATH_LENGTH / 816;
         // Boulders hugging the cliffs + rocks on the floor
-        for (let i = 0; i < 1800; i++) {
+        for (let i = 0; i < 1800 * dens; i++) {
             const [x, z] = randomSpot();
             const reg = this.regionOf(x, z);
             const aq = pathQuery(x, z, {});
+            // the plains stay open for driving: fewer loose rocks there (its boulder clusters are in plains.js)
+            if (reg === 'plains' && rng() < 0.65) continue;
             const big = rng() < 0.12;
             let sc;
             if (big) sc = rng.range(1.6, 4.2);
@@ -1023,15 +1050,16 @@ export class World {
             const tpl = reg === 'frozen' ? rng.pick(iceRocks) : (rng() < 0.15 ? rng.pick(darkRocks) : rng.pick(rocks));
             const key = sc < 0.55 ? 'pebble' : 'rock';
             const y = place(key, tpl, x, z, sc, 0.18, 0, sc < 0.55 ? 0.8 : 0.4);
-            if (sc > 0.75) this.colliders.add(x, z, sc * 0.92, y + sc * 0.72 + 0.05);
+            if (sc > (reg === 'plains' ? 1.2 : 0.75)) this.colliders.add(x, z, sc * 0.92, y + sc * 0.72 + 0.05);
         }
 
-        // Plants (dense in the Crystal Forest)
-        for (let i = 0; i < 2600; i++) {
+        // Plants (dense in the Crystal Forest, sparse on the plains)
+        for (let i = 0; i < 2600 * dens; i++) {
             const [x, z] = randomSpot(0.95);
             const reg = this.regionOf(x, z);
             if (reg === 'frozen') continue;
             if (reg === 'desert' && rng() < 0.62) continue;
+            if (reg === 'plains' && rng() < 0.7) continue;
             if (!this.isClear(x, z, 0.6)) continue;
             const aq = pathQuery(x, z, {});
             if (aq.sd > 1) continue;
@@ -1073,6 +1101,13 @@ export class World {
             crystal: toonMaterial({ vertexColors: true, glow: true, flat: true, rim: 0.6, rimColor: 0xffffff, glowStrength: 1.2 }),
         };
         this.scatterMeshes = batch.build(materials, this.scene, { pebble: { cast: false }, plant: { cast: false } });
+        // how far away each kind is still drawn (pebbles and plants are specks in the haze long before the fog
+        // hides them; big rocks and crystals stay until the fog has nearly swallowed them)
+        const far = { rock: 520, crystal: 520, pebble: 260, plant: 260 };
+        for (const m of this.scatterMeshes) {
+            const key = Object.keys(materials).find((k) => materials[k] === m.material);
+            m.userData.drawDist = far[key] || 520;
+        }
     }
 
     // --------------------------------------------------------
@@ -1316,6 +1351,12 @@ export class World {
         this.time += dt;
         const t = this.time;
         this.skyGroup.position.copy(camera.position);
+        // stop drawing far-away scenery
+        const cp = camera.position;
+        for (const m of this.scatterMeshes) {
+            const sph = m.geometry.boundingSphere;
+            m.visible = cp.distanceTo(sph.center) - sph.radius < m.userData.drawDist;
+        }
         if (focus) this.followShadow(focus);
         this.ship.update(t);
 
@@ -1341,5 +1382,6 @@ export class World {
         if (this.alienFlagCloth) this.alienFlagCloth.rotation.y = Math.sin(t * 2.3) * 0.25;
         if (this.banners) this.banners.forEach((b, i) => (b.rotation.z = Math.sin(t * 1.7 + i) * 0.05));
         if (this.campGlow) this.campGlow.material.opacity = 0.65 + Math.sin(t * 11) * 0.08 + Math.sin(t * 5.3) * 0.07;
+        if (this.plains) this.plains.update(dt);
     }
 }

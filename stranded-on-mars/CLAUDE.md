@@ -33,8 +33,8 @@ open "http://localhost:8765/stranded-on-mars/?debug"
 URL options: `?debug` turns on test keys and `window.game.debug`. `&quality=low|high` pins the resolution (it's
 normally adaptive).
 
-Debug keys (with `?debug`): `1`-`5` jump to checkpoints, `K` defeats the aliens in the current area, `I` toggles
-invincibility, `L` gives all Mars ship parts, `9` jumps to level 2, `0` jumps to level 2's escape pod. `M` switches
+Debug keys (with `?debug`): `1`-`6` jump to checkpoints (`6` is Mars only), `K` defeats the aliens in the current
+area, `I` toggles invincibility, `L` gives all Mars ship parts, `9` jumps to level 2, `0` jumps to level 2's escape pod. `M` switches
 the music set (each set in `sounds.js`, then the classic synth music), `Shift+M` holds one music mode (explore,
 combat, boss / ship, shipCombat, boss2) to hear a song's layers, `N` switches between the recorded and the classic
 synthesized sound effects. `dev/soundboard.html` plays every sound and song side by side.
@@ -49,9 +49,13 @@ Mars (`startOutro`), runs the capture cutscene and then level 2.
 | Call | Does |
 | --- | --- |
 | `stage2(cp)` | Jump into level 2 at checkpoint `cp`, with everything before it done. Checkpoints: 0 hangar, 1 reactor, 2 lab, 3 bridge, 4 creature pit (wakes GLORBAX), 5 escape pod bay (boss already beaten) |
-| `teleport(cp)` | Move to checkpoint `cp` of the current level (Mars has 0-4) |
+| `teleport(cp)` | Move to checkpoint `cp` of the current level (Mars has 0-5: start, Red Rock Canyon, Crystal Forest, Great Dust Plains, Frozen Crater, Crash Site) |
 | `killZone(z)` | Defeat every alien in area `z` (default: the current one) |
 | `openAll()` / `allParts()` | Mars: open every force field / collect all 5 ship parts |
+| `plains(spot)` | Mars: stand in the Great Dust Plains with the areas before them done. `spot`: `'gate'` (the way in), `'ridge'` (foot of the launch ridge), `'crest'` (the run-up), `'lip'` (top of the kicker ramp), `'mesa'` (on top, next to the wing), `'down'` (the ledge path down), `'exit'` (by the far force field) |
+| `jumpUV()` | Mars: where you are in the wing jump's own coordinates: `u` meters past the ramp's lip, `v` sideways, `y` height above the plains floor (the mesa top is `MESA_HEIGHT`) |
+| `raid()` | Mars: set off the Crystal Forest camp's alarm (the tent aliens rush out) |
+| `crackIce(n)` | Mars: `n` grenade blasts on the Frozen Crater's ice slab (3 frees the thruster) |
 | `skipIntro()` | Skip the Mars intro cutscene |
 | `cineShot(n, t)` | Fast-forward the running cutscene to shot `n`, `t` seconds in (use 99 to finish it) |
 | `simulate(sec, input, track)` | Run gameplay without rendering. `input` like `{fire: true, moveX: 1, jumpEvery: 1.3, interact: true}`. `track = true` auto-aims at the nearest alien, or the boss's eye |
@@ -72,6 +76,24 @@ Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.lev
   and halls) implement the same methods, and the player, aliens, combat and HUD only use those: `groundAt`,
   `normalAt`, `ceilingAt`, `confinePlayer`, `confineAlien`, `isSolid`, `solidHit`, `lineOfSight`, `wallBounce`,
   gate methods, `mapImage()` (minimap), `update()`.
+- **Mars, area by area** (`layout.js` `ZONES`, `ZONE` names the indices): 0 Landing Site (tail fin in its crater),
+  1 Red Rock Canyon (a one-time supply crate behind the stone arch), 2 Crystal Forest (the alien camp raid: the fuel
+  tank is in a cage; get close and the alarm calls four more aliens out of the tents (`wave: 1` aliens), beat them all
+  to drop the cage; the ship's rover lies flipped at the camp's edge), 3 Great Dust Plains (a big open area for the
+  rover: the wing sits on a mesa you reach only by jumping the rover off the alien kicker ramp at the end of the launch
+  ridge; this area's force field opens when you have the wing, not when its aliens are beaten), 4 Frozen Crater (the
+  thruster is frozen under an ice slab in the lake: three grenade blasts crack it, with a grenade crate on the shore),
+  5 the Crash Site (the Alien Captain has the power core). The quests live in `missions.js` (`CampRaid`, `IceSlab`,
+  `SupplyCrate`, the rover hooks); the plains' terrain shapes, meshes, colliders and dust devils in `plains.js`.
+- **The wing jump** is tuned by three constants in `layout.js`: `RAMP_ANGLE`, `MESA_GAP` (lip to the mesa's edge) and
+  `MESA_HEIGHT`; the ridge, the kicker and the mesa follow from them (`JUMP`). On foot nobody can get up there (checked
+  by `dev/tests/plains.json`).
+- **The rover** (`rover.js`, `game.rover`, Mars only) is placed by the level at the start (`missions.placeRover`:
+  flipped at `ROVER_SPOT` until it's been found, then upright by the checkpoint), and calls back
+  `game.rover.onFirstFlip` and `game.level.onRoverEnter()`. Grenades call `game.level.onExplosion(pos, radius)`.
+- **The ice slab:** the terrain is dug out under it (so you can see into the ice); `World.groundAt` and `normalAt`
+  keep the ground at the ice's surface around it (and on the slab), so always use the world's methods, not
+  `world.terrain` directly.
 - **Level interface.** `Level` (level.js, Mars) and `ShipLevel` (shiplevel.js) both provide `checkpointAt`,
   `zoneName`, `startBanner`, `currentZone`, `objectiveText`, `bossInfo` (HUD boss bar), `drawMapIcons`,
   `save`/`applySave`, `onStart`, `onAlienDefeated`, `onPlayerDown`, `respawn`, `onGateBump`, `update`,
@@ -121,8 +143,10 @@ Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.lev
   material to a cutscene, add a throwaway copy to those lists, then check `dev/cutscene-fps.mjs` shows no `+N`
   programs during any shot. Build big props before the cutscene starts, not in a shot's `start()`.
 - **Saves** are in localStorage, key `strandedOnMars.save.v1`. Mars format:
-  `{v:1, diff, cp, have, gates, dome, captain, stats}`. Level 2 format: `{v:1, stage:2, diff, cp, cleared, bossSeen,
-  boss, stats}`. Settings: `strandedOnMars.settings`.
+  `{v:2, diff, cp, have, gates, dome, captain, stats, raid, ice, crates, rover}` (`ice`: blasts so far, -1 once
+  broken; `rover`: found). A `v:1` Mars save (from before the Great Dust Plains: five areas, four force fields) is
+  migrated by `Level.migrate()` when it's loaded, so CONTINUE still works (`dev/tests/regress.json` checks it).
+  Level 2 format: `{v:1, stage:2, diff, cp, cleared, bossSeen, boss, stats}`. Settings: `strandedOnMars.settings`.
 - **Headless testing on Linux** uses software WebGL and runs at a few frames per second, so real-time waits (like
   the 2.8s death screen) take much longer there. Prefer `game.debug.simulate()` and `cineShot()` over waiting.
 - **Controls:** keyboard + mouse or a gamepad. Touch isn't supported (the title shows a notice on touch-only

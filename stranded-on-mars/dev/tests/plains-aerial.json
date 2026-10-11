@@ -1,0 +1,19 @@
+[
+ {"url": "/stranded-on-mars/?debug&quality=high"},
+ {"eval": "localStorage.removeItem('strandedOnMars.save.v1'); game.newGame(); game.debug.skipIntro(); 0"},
+ {"until": "game.state==='play'", "timeout": 30000},
+ {"eval": "window.aerial = (x, y, z, lx, ly, lz, fov = 60) => { const g = game; g.setState('paused'); document.getElementById('screen-pause').classList.add('hidden'); document.getElementById('click-resume').classList.add('hidden'); g.player.vm.visible = false; g.hud.show(false); g.camera.fov = fov; g.camera.updateProjectionMatrix(); g.camera.position.set(x, y, z); g.camera.lookAt(lx, ly, lz); g.world.update(0.016, g.camera, new g.camera.position.constructor(lx, ly, lz)); return 0; }; 0"},
+ {"eval": "aerial(-150, 150, -420, -235, 0, -575)"},
+ {"wait": 600},
+ {"shot": "pl_aerial_se.png"},
+ {"eval": "aerial(-235, 330, -560, -236, 0, -561, 70)"},
+ {"wait": 600},
+ {"shot": "pl_aerial_top.png"},
+ {"eval": "aerial(-330, 90, -720, -220, 0, -540)"},
+ {"wait": 600},
+ {"shot": "pl_aerial_nw.png"},
+ {"eval": "import('./js/layout.js').then((L) => { window.L = L; return 0; })"},
+ {"eval": "const J = L.JUMP; const s = J.at(-110, 18); const l = J.at(30, 0); aerial(s.x, 30, s.z, l.x, 12, l.z, 55)"},
+ {"wait": 600},
+ {"shot": "pl_ridge_side.png"}
+]
