@@ -96,6 +96,19 @@ const EDGES = [[0, -1.7], [0, 1.7], [-1.5, -1.1], [1.5, -1.1], [-1.5, 1.1], [1.5
 // Hit box (body space) for aliens, bolts and Lincoln walking into it
 const BOX = { x: 1.45, y0: -0.95, y1: 2.35, z: 1.78 };
 const SEAT = new THREE.Vector3(0, -0.15, 0.3);   // where Lincoln's "feet" are for the game (chest = +1.15 m)
+// Loose rocks up to knee height are bumps it rolls over (smooth domes for the wheels and the hull), so it never
+// stops dead on a pebble or drives through one; taller rocks, and anything with a tag (crates, cages, the mesa's
+// cliffs and the bumper boulders at its far rim...), are walls it bounces off
+const BUMP_MAX = 0.85;
+
+// how tall a collider is as a bump the rover can roll over (0 = it's a wall, or too small to matter)
+function bumpHeight(W, c) {
+    if (c.roverBump === undefined) {
+        const h = c.top - W.groundAt(c.x, c.z);
+        c.roverBump = !c.tag && c.r >= 0.5 && c.bottom < -100 && h > 0.05 && h <= BUMP_MAX ? h : 0;
+    }
+    return c.roverBump;
+}
 const PIVOT_Y = 1.45;                             // the chase camera orbits this high above the rover
 
 const WHITE = SUIT.white, ORANGE = SUIT.orange, SLATE = SUIT.slate;
@@ -430,6 +443,7 @@ export class Rover {
         this.seatK = 0;
         this.hidVM = false;
         this.sound = new RoverAudio(game.audio);
+        this.bumps = [];               // loose rocks nearby that it rolls over
     }
 
     // --------------------------------------------------------
@@ -542,6 +556,7 @@ export class Rover {
         this.cam.pivot.set(x, gy + PIVOT_Y + 0.9, z);
         this.cam.pivotV.set(0, 0, 0);
         // let it settle onto the ground before anyone sees it
+        this.gatherBumps();
         this.landHit = 0;
         for (let i = 0; i < 150; i++) this.step(1 / 120, null);
         this.landHit = 0;
@@ -576,6 +591,7 @@ export class Rover {
         }
         if (this.flip) this.updateFlip(dt);
         // physics, sub-stepped at 240 Hz
+        this.gatherBumps();
         const n = Math.max(1, Math.ceil(dt / (1 / 240)));
         const h = dt / n;
         this.landHit = 0;
@@ -676,10 +692,10 @@ export class Rover {
             const mz = pos.z + _right.z * wh.x + _up.z * T.mountY + _fwd.z * -wh.z;
             const dy = -_up.y;
             if (dy > -0.3) { wh.len = damp(wh.len, T.rest, 10, h); wh.comp = 0; continue; }
-            let t = (my - W.groundAt(mx, mz)) / -dy;
+            let t = (my - this.groundH(mx, mz)) / -dy;
             for (let k = 0; k < 2; k++) {
                 const px = mx - _up.x * t, pz = mz - _up.z * t;
-                t = (my - W.groundAt(px, pz)) / -dy;
+                t = (my - this.groundH(px, pz)) / -dy;
             }
             const reach = T.rest + T.wheelR;
             if (!(t < reach) || t < -1.5) { wh.len = damp(wh.len, T.rest, 12, h); wh.comp = 0; continue; }
@@ -705,7 +721,7 @@ export class Rover {
             F.addScaledVector(_up, Fs);
             tau.add(_v2.copy(_r).cross(_v3.copy(_up).multiplyScalar(Fs)));
             // the tire's own forward and sideways directions, flat on the ground
-            W.normalAt(cx, cz, _n);
+            this.normalH(cx, cz, _n);
             const st = wh.front ? this.steer : 0;
             _wf.copy(_fwd).multiplyScalar(Math.cos(st)).addScaledVector(_right, -Math.sin(st));
             _wf.addScaledVector(_n, -_wf.dot(_n)).normalize();
@@ -806,6 +822,47 @@ export class Rover {
         this.walls();
     }
 
+    // The loose rocks around it (each frame): it rolls over them like smooth domes
+    gatherBumps() {
+        const W = this.game.world;
+        const B = this.bumps;
+        B.length = 0;
+        W.colliders.query(this.pos.x, this.pos.z, 9, (c) => {
+            const h = bumpHeight(W, c);
+            if (h > 0) B.push({ x: c.x, z: c.z, r: c.r * 1.6, h, base: c.top - h });   // (wider than the rock: soft balloon tires)
+        });
+    }
+
+    // the ground under (x, z) for the wheels and the hull: the terrain, or a rock it's rolling over
+    groundH(x, z) {
+        let y = this.game.world.groundAt(x, z);
+        for (const b of this.bumps) {
+            const dx = x - b.x, dz = z - b.z, d2 = dx * dx + dz * dz;
+            if (d2 >= b.r * b.r) continue;
+            const hb = b.base + b.h * 0.5 * (1 + Math.cos(Math.PI * Math.sqrt(d2) / b.r));
+            if (hb > y) y = hb;
+        }
+        return y;
+    }
+
+    normalH(x, z, out) {
+        const W = this.game.world;
+        W.normalAt(x, z, out);
+        let y = W.groundAt(x, z), best = null, bd = 0;
+        for (const b of this.bumps) {
+            const dx = x - b.x, dz = z - b.z, d2 = dx * dx + dz * dz;
+            if (d2 >= b.r * b.r) continue;
+            const d = Math.sqrt(d2);
+            const hb = b.base + b.h * 0.5 * (1 + Math.cos(Math.PI * d / b.r));
+            if (hb > y) { y = hb; best = b; bd = d; }
+        }
+        if (!best || bd < 1e-4) return out;
+        // the rock's slope, on top of the terrain's own tilt
+        const k = -best.h * 0.5 * Math.PI / best.r * Math.sin(Math.PI * bd / best.r) / bd;
+        const gx = k * (x - best.x) - out.x / out.y, gz = k * (z - best.z) - out.z / out.y;
+        return out.set(-gx, 1, -gz).normalize();
+    }
+
     // velocity of a body point (r = point - center of mass)
     pointVel(r, out) {
         return out.crossVectors(this.angVel, r).add(this.vel);
@@ -841,8 +898,11 @@ export class Rover {
         for (const hp of HULL) {
             _r.set(hp[0], hp[1], hp[2]).applyQuaternion(this.q);
             const px = pos.x + _r.x, py = pos.y + _r.y, pz = pos.z + _r.z;
-            const gy = W.groundAt(px, pz);
+            const gy = this.groundH(px, pz);
             if (py >= gy) continue;
+            // (scraping over a rock it pushes straight up off it and slides, so a rock under the belly
+            // lifts it rather than shoving it sideways)
+            const onRock = gy > W.groundAt(px, pz) + 0.02;
             W.normalAt(px, pz, _n);
             const pen = (gy - py) * _n.y;
             const pv = this.pointVel(_r, _v);
@@ -857,7 +917,7 @@ export class Rover {
                 const vt = _v3.length();
                 if (vt > 1e-4) {
                     _v3.divideScalar(vt);
-                    const jt = Math.min(vt / this.effMass(_r, _v3), 0.6 * jn);
+                    const jt = Math.min(vt / this.effMass(_r, _v3), (onRock ? 0.2 : 0.6) * jn);
                     this.impulse(_v2.copy(_v3).multiplyScalar(-jt), _r);
                 }
             }
@@ -893,7 +953,7 @@ export class Rover {
             if (W.domeBlocks && W.domeBlocks(_t, rad)) this.wallPush(_p, _t.x - px, _t.z - pz);
             // rocks and props taller than a bump (and not below it when it flies over them)
             W.colliders.query(px, pz, rad + 6, (c) => {
-                if (c.top < Math.max(bottom + 0.75, pos.y - 1.0) || c.bottom > pos.y + 2.2) return;
+                if (c.top < Math.max(bottom + 0.75, pos.y - 1.0) || c.bottom > pos.y + 2.2 || bumpHeight(W, c) > 0) return;
                 const dx = px - c.x, dz = pz - c.z;
                 const d = Math.hypot(dx, dz), minD = c.r + rad;
                 if (d >= minD || d < 1e-5) return;

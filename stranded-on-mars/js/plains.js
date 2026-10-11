@@ -359,7 +359,7 @@ export function buildPlains(world) {
     // boulders on the mesa top near the far rim (bumpers for a fast landing) and around the plains
     const rng = makeRng(404);
     const rockGeo = new THREE.IcosahedronGeometry(1, 1);
-    const boulder = (x, z, s, y = world.groundAt(x, z)) => {
+    const boulder = (x, z, s, y = world.groundAt(x, z), tag = null) => {
         const g = rockGeo.clone();
         const p = g.attributes.position;
         const vv = new THREE.Vector3();
@@ -371,7 +371,7 @@ export function buildPlains(world) {
         }
         rocks.add(g, [0xb4563a, (pp, i, c) => c.set(pp.getY(i) > y + s * 0.3 ? 0xe39c6b : pp.getY(i) < y - s * 0.05 ? 0x8a3f2c : 0xb4563a)],
             { p: [x, y + s * 0.25, z], s: [s, s * rng.range(0.8, 1.2), s], r: [0, rng() * 6, 0] }, 0, true);
-        world.colliders.add(x, z, s * 0.9, y + s * 0.8);
+        world.colliders.add(x, z, s * 0.9, y + s * 0.8, -1000, tag);
     };
     const M = J.mesa;
     for (let i = 0; i < 9; i++) {
@@ -379,7 +379,7 @@ export function buildPlains(world) {
         const v = lerp(-M.halfW + 6, M.halfW - 8, t);
         const u = M.u0 + M.len - 5 - Math.abs(v) * 0.12 + rng.range(-1.5, 1.5);
         const p = J.at(u, v);
-        boulder(p.x, p.z, rng.range(1.1, 1.8), J.base + MESA_HEIGHT);
+        boulder(p.x, p.z, rng.range(1.1, 1.8), J.base + MESA_HEIGHT, 'bumper'); // (tagged: the rover never rolls over these)
     }
     for (let i = 0; i < 5; i++) {
         const p = J.at(rng.range(M.u0 + 8, M.u0 + 30), rng.range(-M.halfW + 3, -M.halfW + 7));

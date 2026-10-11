@@ -115,9 +115,12 @@ Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.lev
   `world.groundAt/normalAt`, sub-stepped at 240 Hz, with the game's gravity (`PLAYER.gravity`). Tuning is the
   `ROVER` table at the top of the file. Halo-style controls: the camera aims, W drives toward it, the turret fires
   the blaster's bolts (`combat.playerBolt`) along the crosshair ray. It collides through the World interface
-  (`confinePlayer`, `blockByGates`, `domeBlocks`, `colliders` taller than 0.75 m, steep ground with normal.y < 0.6
-  as a wall). main.js calls `update()` after the player and `lateUpdate()` after the level (a level prompt with a
-  key wins over the rover's E prompt); `Player.update` returns early while riding and `Player.updateCamera` hands
+  (`confinePlayer`, `blockByGates`, `domeBlocks`, `colliders`, steep ground with normal.y < 0.6 as a wall).
+  Loose rocks up to knee height (untagged colliders no more than `BUMP_MAX` = 0.85 m tall) are bumps its wheels and
+  belly roll over; taller rocks and every collider with a tag are walls it bounces off. So a collider that must
+  stop the rover (like the bumper boulders at the mesa's far rim, tagged `'bumper'`) needs a tag. main.js calls
+  `update()` after the player and `lateUpdate()` after the level (a level prompt with a key wins over the rover's
+  E prompt); `Player.update` returns early while riding and `Player.updateCamera` hands
   the camera to `rover.applyCamera()`. Alien bolts hitting the rover or Lincoln on it do half damage
   (`Player.hurt` adds up fractions). **The level's interface (keep these exactly):**
   - `game.rover` exists on the Mars stage only (`useStage` swaps it; `null` aboard the mothership). It's hidden

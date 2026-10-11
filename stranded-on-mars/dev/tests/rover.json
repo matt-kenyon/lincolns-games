@@ -15,7 +15,7 @@
   "wait": 800
  },
  {
-  "eval": "/* the physics checks drive set lanes: random small rocks (from the map's scatter) would make them flaky, and the hover-bikers live on the plains (zone 3), so keep that zone awake */ { const W = game.world, q0 = W.colliders.query.bind(W.colliders); W.colliders.query = (x, z, r, cb) => q0(x, z, r, (c) => { if (!c.tag && c.top - W.groundAt(c.x, c.z) < 1.8) return; return cb(c); }); } game.aliens.setZoneActive(3, true); for (const b of game.aliens.list.filter((a) => a.T.bike)) { b.pos.set(b.pos.x * 0 + (Math.random() * 40 - 20), 0, -30 - Math.random() * 20); b.pos.y = game.world.groundAt(b.pos.x, b.pos.z); b.home && b.home.copy(b.pos); } game.debug.cineShot(8, 0); game.player.god = true; window.RT = { ok(c, msg) { if (!c) throw new Error('CHECK FAILED: ' + msg); return true; }, up() { const R = game.rover; return +new R.pos.constructor(0, 1, 0).applyQuaternion(R.q).y.toFixed(2); }, get() { const R = game.rover; const f = new R.pos.constructor(0, 0, -1).applyQuaternion(R.q), r = new R.pos.constructor(1, 0, 0).applyQuaternion(R.q); return { sp: +R.speed.toFixed(1), slip: +(Math.atan2(R.vel.dot(r), Math.abs(R.vel.dot(f))) * 57.3).toFixed(0), yaw: +R.yaw.toFixed(2), up: RT.up(), wheels: R.onGround, drv: R.driving, flipped: R.flipped, pos: R.pos.toArray().map((v) => +v.toFixed(1)) }; }, mount() { const R = game.rover; game.player.spawn(R.pos.x + 2.6, R.pos.z, 0); game.debug.simulate(0.03, { interact: true }); return R.driving; }, freeze() { game.state = 'paused'; document.getElementById('zone-banner').classList.remove('show'); document.getElementById('click-resume').classList.add('hidden'); }, play() { game.state = 'play'; } }; ({ state: game.state, rover: !!game.rover, placed: game.rover.placed })"
+  "eval": "game.debug.cineShot(8, 0); game.player.god = true; window.RT = { V: game.rover.pos.constructor, ok(c, msg) { if (!c) throw new Error('CHECK FAILED: ' + msg); return true; }, up() { const R = game.rover; return +new RT.V(0, 1, 0).applyQuaternion(R.q).y.toFixed(2); }, get() { const R = game.rover; const f = new RT.V(0, 0, -1).applyQuaternion(R.q), r = new RT.V(1, 0, 0).applyQuaternion(R.q); return { sp: +R.speed.toFixed(1), slip: +(Math.atan2(R.vel.dot(r), Math.abs(R.vel.dot(f))) * 57.3).toFixed(0), yaw: +R.yaw.toFixed(2), up: RT.up(), wheels: R.onGround, drv: R.driving, flipped: R.flipped, pos: R.pos.toArray().map((v) => +v.toFixed(1)) }; }, mount() { const R = game.rover; game.player.spawn(R.pos.x + 2.6, R.pos.z, 0); game.debug.simulate(0.03, { interact: true }); return R.driving; }, freeze() { game.state = 'paused'; document.getElementById('zone-banner').classList.remove('show'); document.getElementById('click-resume').classList.add('hidden'); }, play() { game.state = 'play'; }, lane(x, z, yaw, len, halfW = 3, okBump = 0) { const W = game.world, fx = -Math.sin(yaw), fz = -Math.cos(yaw), hits = new Set(), t = new RT.V(); for (let s = 0; s <= len; s += 3) W.colliders.query(x + fx * s, z + fz * s, halfW + 5, (c) => { if (okBump && !c.tag && c.top - W.groundAt(c.x, c.z) <= okBump) return; const rx = c.x - x, rz = c.z - z, along = rx * fx + rz * fz, lat = Math.abs(rz * fx - rx * fz); if (along > -4 && along < len + 4 && lat < halfW + c.r) hits.add(c); }); let inside = true; for (let s = 0; s <= len; s += 3) for (const o of [-halfW, 0, halfW]) { const px = x + fx * s - fz * o, pz = z + fz * s + fx * o; t.set(px, 0, pz); W.confinePlayer(t, 1); if (Math.hypot(t.x - px, t.z - pz) > 0.01) inside = false; } const gate = !!W.segmentHitsGate(x, 1, z, x + fx * len, 1, z + fz * len); return { clear: !hits.size && inside && !gate, rocks: hits.size, inside, gate }; }, pick(cands, len, halfW) { return cands.find(([x, z, yaw]) => RT.lane(x, z, yaw, len, halfW).clear) || null; }, grid(x0, x1, z0, z1, step, yaw) { const out = []; for (let z = z0; z >= z1; z -= step) for (let x = x0; x <= x1; x += step) out.push([x, z, yaw]); return out; }, }; ({ state: game.state, rover: !!game.rover, placed: game.rover.placed })"
  },
  {
   "eval": "RT.ok(game.rover && game.rover.placed && game.rover.flipped && !game.rover.found, 'the level leaves it upside down at the alien camp'); const r = game.debug.rover(0, 30, 0.4); game.player.spawn(-1.7, 33.0, -0.55); game.debug.simulate(0.3, {}); const prompt = document.getElementById('prompt').textContent; RT.ok(/Drive the rover/.test(prompt), 'prompt shows'); RT.freeze(); ({ placed: r, prompt })"
@@ -36,7 +36,7 @@
   "shot": "rover02_in.png"
  },
  {
-  "eval": "RT.play(); const R = game.rover; game.debug.rover(0, 60, 0); RT.mount(); game.player.yaw = 0; game.player.pitch = -0.2; const t = []; for (let i = 0; i < 10; i++) { game.debug.simulate(0.5, { moveY: 1 }); t.push(+R.speed.toFixed(1)); } RT.ok(R.speed > 22 && R.speed < 27, 'top speed 22-27 m/s'); RT.freeze(); ({ speedEveryHalfSecond: t, top: RT.get() })"
+  "eval": "RT.play(); const c = RT.grid(-30, 30, 66, 40, 2, 0).find(([x, z]) => RT.lane(x, z, 0, 75, 3).clear); RT.ok(c, 'a clear lane for the top speed'); const R = game.rover; game.debug.rover(c[0], c[1], 0); RT.mount(); game.player.yaw = 0; game.player.pitch = -0.2; const t = []; for (let i = 0; i < 10; i++) { game.debug.simulate(0.5, { moveY: 1 }); t.push(+R.speed.toFixed(1)); } RT.ok(R.speed > 22 && R.speed < 27, 'top speed 22-27 m/s'); RT.freeze(); ({ lane: c, speedEveryHalfSecond: t, top: RT.get() })"
  },
  {
   "wait": 400
@@ -45,10 +45,10 @@
   "shot": "rover03_fast.png"
  },
  {
-  "eval": "RT.play(); const R = game.rover; game.debug.rover(0, 60, 0); RT.mount(); game.player.yaw = 0; game.debug.simulate(4, { moveY: 1 }); game.player.yaw = -Math.PI / 2; let maxSlip = 0, at = null; const t = []; for (let i = 0; i < 40; i++) { game.debug.simulate(0.05, { moveY: 1 }); const s = RT.get(); t.push(s.slip); if (Math.abs(s.slip) > maxSlip) { maxSlip = Math.abs(s.slip); } if (i === 14) at = s; } const end = RT.get(); RT.ok(maxSlip > 15, 'hard turn slides'); RT.ok(RT.up() > 0.8, 'stays on its wheels'); RT.ok(Math.abs(end.yaw + Math.PI / 2) < 0.5 && Math.abs(end.slip) < 25, 'drift straightens out'); ({ slipDegEvery50ms: t, maxSlip, at15: at, after2s: end })"
+  "eval": "RT.play(); const W = game.world, R = game.rover; const g0 = W.groundAt, n0 = W.normalAt, q0 = W.colliders.query; R.hitAliens = () => {}; W.groundAt = () => 0; W.normalAt = (x, z, o) => o.set(0, 1, 0); W.colliders.query = () => false;  let res; try { game.debug.rover(-10, 60, 0); RT.mount(); game.player.yaw = 0; game.debug.simulate(4, { moveY: 1 }); game.player.yaw = -Math.PI / 2; let maxSlip = 0, at = null; const t = []; for (let i = 0; i < 40; i++) { game.debug.simulate(0.05, { moveY: 1 }); const s = RT.get(); t.push(s.slip); maxSlip = Math.max(maxSlip, Math.abs(s.slip)); if (i === 14) at = s; } res = { slipDegEvery50ms: t, maxSlip, at15: at, after2s: RT.get() }; } finally { W.groundAt = g0; W.normalAt = n0; W.colliders.query = q0; delete R.hitAliens; } const end = res.after2s; RT.ok(res.maxSlip > 15, 'hard turn slides'); RT.ok(end.up > 0.8, 'stays on its wheels'); RT.ok(Math.abs(end.yaw + Math.PI / 2) < 0.5 && Math.abs(end.slip) < 25, 'drift straightens out'); res"
  },
  {
-  "eval": "RT.play(); const R = game.rover; game.debug.rover(0, 60, 0); RT.mount(); game.player.yaw = 0; game.debug.simulate(4, { moveY: 1 }); game.player.yaw = -Math.PI / 2; game.player.pitch = -0.25; const t = []; for (let i = 0; i < 14; i++) { game.debug.simulate(0.05, { moveY: 1, jumpHeld: true }); const s = RT.get(); t.push(s.slip); } RT.freeze(); ({ handbrakeSlipEvery50ms: t, now: RT.get() })"
+  "eval": "RT.play(); const W = game.world, R = game.rover; const g0 = W.groundAt, n0 = W.normalAt, q0 = W.colliders.query; R.hitAliens = () => {}; W.groundAt = () => 0; W.normalAt = (x, z, o) => o.set(0, 1, 0); W.colliders.query = () => false;  let t = []; try { game.debug.rover(-10, 60, 0); RT.mount(); game.player.yaw = 0; game.debug.simulate(4, { moveY: 1 }); game.player.yaw = -Math.PI / 2; game.player.pitch = -0.25; for (let i = 0; i < 14; i++) { game.debug.simulate(0.05, { moveY: 1, jumpHeld: true }); t.push(RT.get().slip); } } finally { W.groundAt = g0; W.normalAt = n0; W.colliders.query = q0; delete R.hitAliens; } RT.ok(Math.max(...t.map(Math.abs)) > 45, 'handbrake: a big slide'); RT.freeze(); ({ handbrakeSlipEvery50ms: t, now: RT.get() })"
  },
  {
   "wait": 400
@@ -57,10 +57,10 @@
   "shot": "rover04_drift.png"
  },
  {
-  "eval": "RT.play(); const W = game.world, R = game.rover; const g0 = W.groundAt, n0 = W.normalAt, q0 = W.colliders.query; R.hitAliens = () => {}; const tan = Math.tan(25 * Math.PI / 180), L = 8, top = L * tan; W.groundAt = (x, z) => (z <= 0 && z >= -L) ? -z * tan : 0; W.normalAt = (x, z, o) => (z <= 0 && z >= -L) ? o.set(0, 1, tan).normalize() : o.set(0, 1, 0); W.colliders.query = () => false; let res; try { game.debug.rover(0, 110, 0); RT.mount(); game.player.yaw = 0; game.player.pitch = -0.1; let lip = null, air = false, land = null, maxY = -9, peakZ = 0, atLipH = null, snap = false; for (let i = 0; i < 900; i++) { game.debug.simulate(0.03, { moveY: 1 }); const p = R.pos; if (!lip && p.z < -L) lip = { speed: +R.speed.toFixed(2), vy: +R.vel.y.toFixed(2), vh: +(-R.vel.z).toFixed(2), deg: +(Math.atan2(R.vel.y, -R.vel.z) * 57.3).toFixed(1) }; if (lip) { if (p.y > maxY) { maxY = p.y; peakZ = p.z; } if (R.onGround === 0) air = true; const wheelsY = p.y - 0.93; if (air && !atLipH && R.vel.y < 0 && wheelsY < top) atLipH = +(-L - p.z).toFixed(1); if (air && !land && (R.onGround > 0 || p.y - W.groundAt(p.x, p.z) < 1.1)) { land = { dist: +(-L - p.z).toFixed(1), up: RT.up() }; break; } } } res = { lipLaunch: lip, peakAboveGround: +(maxY - 0.93).toFixed(2), peakAboveLip: +(maxY - 0.93 - top).toFixed(2), distWhenBackAtLipHeight: atLipH, distToTouchdownOnFlatGround: land && land.dist, landedUp: land && land.up }; } finally { W.groundAt = g0; W.normalAt = n0; W.colliders.query = q0; delete R.hitAliens; } RT.ok(res.distToTouchdownOnFlatGround > 20, 'big air'); RT.ok(res.landedUp > 0.8, 'lands on its wheels'); res"
+  "eval": "RT.play(); const W = game.world, R = game.rover; const g0 = W.groundAt, n0 = W.normalAt, q0 = W.colliders.query; R.hitAliens = () => {}; const tan = Math.tan(25 * Math.PI / 180), L = 8, top = L * tan; W.groundAt = (x, z) => (z <= 0 && z >= -L) ? -z * tan : 0; W.normalAt = (x, z, o) => (z <= 0 && z >= -L) ? o.set(0, 1, tan).normalize() : o.set(0, 1, 0); W.colliders.query = () => false;  let res; try { game.debug.rover(0, 110, 0); RT.mount(); game.player.yaw = 0; game.player.pitch = -0.1; let lip = null, air = false, land = null, maxY = -9, atLipH = null; for (let i = 0; i < 900; i++) { game.debug.simulate(0.03, { moveY: 1 }); const p = R.pos; if (!lip && p.z < -L) lip = { speed: +R.speed.toFixed(2), vy: +R.vel.y.toFixed(2), vh: +(-R.vel.z).toFixed(2), deg: +(Math.atan2(R.vel.y, -R.vel.z) * 57.3).toFixed(1) }; if (lip) { maxY = Math.max(maxY, p.y); if (R.onGround === 0) air = true; const wheelsY = p.y - 0.93; if (air && !atLipH && R.vel.y < 0 && wheelsY < top) atLipH = +(-L - p.z).toFixed(1); if (air && !land && (R.onGround > 0 || p.y - W.groundAt(p.x, p.z) < 1.1)) { land = { dist: +(-L - p.z).toFixed(1), up: RT.up() }; break; } } } res = { lipLaunch: lip, peakAboveGround: +(maxY - 0.93).toFixed(2), peakAboveLip: +(maxY - 0.93 - top).toFixed(2), distWhenBackAtLipHeight: atLipH, distToTouchdownOnFlatGround: land && land.dist, landedUp: land && land.up }; } finally { W.groundAt = g0; W.normalAt = n0; W.colliders.query = q0; delete R.hitAliens; } RT.ok(res.distToTouchdownOnFlatGround > 20, 'big air'); RT.ok(res.landedUp > 0.8, 'lands on its wheels'); res"
  },
  {
-  "eval": "const W = game.world, R = game.rover; const g0 = W.groundAt, n0 = W.normalAt, q0 = W.colliders.query; R.hitAliens = () => {}; const tan = Math.tan(25 * Math.PI / 180), L = 8; W.groundAt = (x, z) => (z <= 0 && z >= -L) ? -z * tan : 0; W.normalAt = (x, z, o) => (z <= 0 && z >= -L) ? o.set(0, 1, tan).normalize() : o.set(0, 1, 0); W.colliders.query = () => false; let y = 0; try { game.debug.rover(0, 110, 0); RT.mount(); game.player.yaw = 0; game.player.pitch = -0.05; let air = false; for (let i = 0; i < 900; i++) { game.debug.simulate(0.03, { moveY: 1 }); if (R.pos.z < -L && R.onGround === 0) air = true; if (air && R.vel.y < 0.5) break; } y = R.pos.y; } finally { W.groundAt = g0; W.normalAt = n0; W.colliders.query = q0; delete R.hitAliens; } RT.freeze(); const c = game.camera; c.position.set(R.pos.x + 11, R.pos.y - 1.5, R.pos.z + 7); c.lookAt(R.pos.x, R.pos.y - 1.2, R.pos.z - 2); c.fov = 55; c.updateProjectionMatrix(); game.player.vm.visible = false; ({ heightOfTheRover: +(y - 0.93).toFixed(1) })"
+  "eval": "const W = game.world, R = game.rover; const g0 = W.groundAt, n0 = W.normalAt, q0 = W.colliders.query; R.hitAliens = () => {}; const tan = Math.tan(25 * Math.PI / 180), L = 8, top = L * tan; W.groundAt = (x, z) => (z <= 0 && z >= -L) ? -z * tan : 0; W.normalAt = (x, z, o) => (z <= 0 && z >= -L) ? o.set(0, 1, tan).normalize() : o.set(0, 1, 0); W.colliders.query = () => false;  let y = 0; try { game.debug.rover(0, 110, 0); RT.mount(); game.player.yaw = 0; game.player.pitch = -0.05; let air = false; for (let i = 0; i < 900; i++) { game.debug.simulate(0.03, { moveY: 1 }); if (R.pos.z < -L && R.onGround === 0) air = true; if (air && R.vel.y < 0.5) break; } y = R.pos.y; } finally { W.groundAt = g0; W.normalAt = n0; W.colliders.query = q0; delete R.hitAliens; } RT.freeze(); const c = game.camera; c.position.set(R.pos.x + 11, R.pos.y - 1.5, R.pos.z + 7); c.lookAt(R.pos.x, R.pos.y - 1.2, R.pos.z - 2); c.fov = 55; c.updateProjectionMatrix(); game.player.vm.visible = false; ({ heightOfTheRover: +(y - 0.93).toFixed(1) })"
  },
  {
   "wait": 400
@@ -69,7 +69,19 @@
   "shot": "rover05_air.png"
  },
  {
-  "eval": "RT.play(); const R = game.rover, P = game.player; R.hitAliens = () => {}; RT.crash = (c, stopAtTip) => { game.debug.rover(c[0], c[1], c[2]); RT.mount(); P.yaw = c[2]; P.pitch = -0.3; let tipT = null; for (let i = 0; i < 300 && !R.flipped; i++) { game.debug.simulate(0.03, { moveY: i < 170 ? 1 : 0 }); if (tipT === null && RT.up() < 0.35) { tipT = i; if (stopAtTip) break; } } return tipT; }; const tries = [[0, 40, -1.0], [10, -10, -1.1], [0, 40, 1.45], [0, 40, 1.2]]; let used = null, tip = null; for (const c of tries) { tip = RT.crash(c, false); if (R.flipped) { used = c; break; } game.debug.simulate(0.03, { interact: true }); } delete R.hitAliens; RT.ok(used, 'a full-speed crash into the canyon wall tips it over'); RT.crashUsed = used; ({ crashedInto: used, tippedAfterSecs: +(tip * 0.03).toFixed(1) })"
+  "eval": "RT.play(); const W = game.world, R = game.rover; let found = null; for (const ok of [0.55, 0.7, 0.85]) W.colliders.query(0, -100, 200, (c) => { if (found || c.tag || c.r < 0.6) return; const h = c.top - W.groundAt(c.x, c.z); if (h < 0.6 || h > 0.85) return; for (const yaw of [0, 0.5, -0.5, 1, -1, Math.PI, 2.2, -2.2]) { const fx = -Math.sin(yaw), fz = -Math.cos(yaw); const sx = c.x - fx * 40, sz = c.z - fz * 40; const before = RT.lane(sx, sz, yaw, 40 - c.r - 1.5, 2.5, ok), after = RT.lane(c.x + fx * (c.r + 1.5), c.z + fz * (c.r + 1.5), yaw, 20, 2.5, ok); if (before.clear && after.clear) { found = { rock: [+c.x.toFixed(1), +c.z.toFixed(1), +c.r.toFixed(1), +h.toFixed(2)], start: [sx, sz, yaw] }; return true; } } }); RT.ok(found, 'a knee-high rock with a clear run-up'); const [sx, sz, yaw] = found.start; game.debug.rover(sx, sz, yaw); RT.mount(); game.player.yaw = yaw; game.player.pitch = -0.25; const fx = -Math.sin(yaw), fz = -Math.cos(yaw); let past = false, minSpeed = 99, air = 0, minUp = 1, snap = false, comp = 0; for (let i = 0; i < 200; i++) { game.debug.simulate(0.03, { moveY: 1 }); const along = (R.pos.x - sx) * fx + (R.pos.z - sz) * fz; if (along > 34) { minSpeed = Math.min(minSpeed, R.speed); minUp = Math.min(minUp, RT.up()); if (R.onGround < 4) air++; for (const w of R.wheels) comp = Math.max(comp, w.comp); } if (!snap && along > 39.5) { snap = true; break; } if (along > 46) { past = true; break; } } RT.freeze(); RT.rockRun = found; ({ rock: found.rock, overTheRockNow: snap, speedOverIt: +minSpeed.toFixed(1), framesWithAWheelUp: air, maxSpringSquash: +comp.toFixed(2), minUp })"
+ },
+ {
+  "wait": 300
+ },
+ {
+  "shot": "rover06_bump.png"
+ },
+ {
+  "eval": "RT.play(); const R = game.rover, [sx, sz, yaw] = RT.rockRun.start; const fx = -Math.sin(yaw), fz = -Math.cos(yaw); let minSpeed = 99, minUp = 1, along = 0; for (let i = 0; i < 60; i++) { game.debug.simulate(0.03, { moveY: 1 }); along = (R.pos.x - sx) * fx + (R.pos.z - sz) * fz; minSpeed = Math.min(minSpeed, R.speed); minUp = Math.min(minUp, RT.up()); if (along > 52) break; } RT.ok(along > 46 && minSpeed > 8 && minUp > 0.5, 'rolls over a knee-high rock and keeps going'); ({ along: +along.toFixed(1), minSpeed: +minSpeed.toFixed(1), minUp })"
+ },
+ {
+  "eval": "RT.play(); const W = game.world, R = game.rover, P = game.player; const t = new RT.V(); const wallDist = (x, z, yaw) => { const fx = -Math.sin(yaw), fz = -Math.cos(yaw); for (let s = 4; s < 90; s += 2) { t.set(x + fx * s, 0, z + fz * s); W.confinePlayer(t, 1); if (Math.hypot(t.x - x - fx * s, t.z - z - fz * s) > 0.01) return s; } return 999; }; const cands = []; for (const [x, z] of [[0, 40], [0, 20], [10, -10], [6, -30], [0, 0], [-6, 55], [12, -45]]) for (let a = 0.9; a <= 1.51; a += 0.15) for (const s of [1, -1]) { const yaw = s * a, d = wallDist(x, z, yaw); if (d >= 40 && d <= 75 && RT.lane(x, z, yaw, d - 4, 2.5).clear) cands.push([x, z, +yaw.toFixed(2)]); } R.hitAliens = () => {}; RT.crash = (c, stopAtTip) => { game.debug.rover(c[0], c[1], c[2]); RT.mount(); P.yaw = c[2]; P.pitch = -0.3; let tipT = null; for (let i = 0; i < 300 && !R.flipped; i++) { game.debug.simulate(0.03, { moveY: i < 170 ? 1 : 0 }); if (tipT === null && RT.up() < 0.35) { tipT = i; if (stopAtTip) break; } } return tipT; }; let used = null, tip = null, tried = 0; for (const c of cands.slice(0, 24)) { tried++; tip = RT.crash(c, false); if (R.flipped) { used = c; break; } game.debug.simulate(0.03, { interact: true }); } delete R.hitAliens; RT.ok(used, 'a full-speed crash into the canyon wall tips it over'); RT.crashUsed = used; ({ lanesIntoTheWalls: cands.length, tried, crashedInto: used, tippedAfterSecs: +(tip * 0.03).toFixed(1) })"
  },
  {
   "eval": "const R = game.rover; R.hitAliens = () => {}; RT.crash(RT.crashUsed, true); game.debug.simulate(0.12, {}); delete R.hitAliens; RT.freeze(); ({ crash: RT.get() })"
@@ -78,40 +90,40 @@
   "wait": 300
  },
  {
-  "shot": "rover06_crash.png"
+  "shot": "rover07_crash.png"
  },
  {
-  "eval": "RT.play(); const R = game.rover; for (let i = 0; i < 60 && !R.flipped; i++) game.debug.simulate(0.1, {}); RT.ok(R.flipped, 'the crash tipped it over'); const prompt = document.getElementById('prompt').textContent; RT.freeze(); ({ flipped: R.flipped, up: RT.up(), prompt })"
- },
- {
-  "wait": 300
- },
- {
-  "shot": "rover07_flipped.png"
- },
- {
-  "eval": "RT.play(); const R = game.rover; let fl = false; game.debug.simulate(0.03, { interact: true, interactHeld: true }); for (let i = 0; i < 30 && !R.flip; i++) game.debug.simulate(0.03, { interactHeld: true }); RT.ok(!!R.flip, 'hold E starts the flip'); game.debug.simulate(0.36, { interactHeld: true }); RT.freeze(); ({ hop: RT.get() })"
+  "eval": "RT.play(); const R = game.rover; R.hitAliens = () => {}; for (let i = 0; i < 60 && !R.flipped; i++) game.debug.simulate(0.1, {}); delete R.hitAliens; RT.ok(R.flipped, 'the crash tipped it over'); const prompt = document.getElementById('prompt').textContent; RT.freeze(); ({ flipped: R.flipped, up: RT.up(), prompt })"
  },
  {
   "wait": 300
  },
  {
-  "shot": "rover08_fliphop.png"
+  "shot": "rover08_flipped.png"
  },
  {
-  "eval": "RT.play(); const R = game.rover; game.debug.simulate(2.0, {}); RT.ok(!R.flipped && R.onGround >= 3 && RT.up() > 0.7 && R.driving, 'back on its wheels (on the slope), still driving ' + JSON.stringify(RT.get())); ({ after: RT.get() })"
- },
- {
-  "eval": "const R = game.rover; const a = game.aliens.byZone[0][0]; a.dive = () => {}; a.tower = true; a.pos.set(4, game.world.groundAt(4, -60), -60); a.home.copy(a.pos); game.debug.rover(4, -10, 0); RT.mount(); game.player.pitch = -0.15; const s0 = game.stats.aliens; let hitAt = null, snap = false; for (let i = 0; i < 200; i++) { if (!a.dead) game.player.yaw = Math.atan2(-(a.pos.x - R.pos.x), -(a.pos.z - R.pos.z)); game.debug.simulate(0.03, { moveY: 1 }); if (a.dead && hitAt === null) hitAt = +R.speed.toFixed(1); if (a.dead && !snap && a.pos.y > a.home.y + 2.5) { snap = true; break; } } RT.ok(a.dead && game.stats.aliens === s0 + 1, 'run over: beaten and counted'); RT.freeze(); ({ speedAtHit: hitAt, alienFlying: +(a.pos.y - a.home.y).toFixed(1), aliensBeaten: game.stats.aliens })"
+  "eval": "RT.play(); const R = game.rover; game.debug.simulate(0.03, { interact: true, interactHeld: true }); for (let i = 0; i < 30 && !R.flip; i++) game.debug.simulate(0.03, { interactHeld: true }); RT.ok(!!R.flip, 'hold E starts the flip'); game.debug.simulate(0.36, { interactHeld: true }); RT.freeze(); ({ hop: RT.get() })"
  },
  {
   "wait": 300
  },
  {
-  "shot": "rover09_strike.png"
+  "shot": "rover09_fliphop.png"
  },
  {
-  "eval": "RT.play(); const R = game.rover; const a = game.aliens.byZone[0][1]; const rnd = Math.random; Math.random = () => 0.05; let dived = false; try { game.debug.rover(a.pos.x, a.pos.z + 45, 0); RT.mount(); a.alertTo(0); for (let i = 0; i < 150 && !a.dead; i++) { const dx = a.pos.x - R.pos.x, dz = a.pos.z - R.pos.z; game.player.yaw = Math.atan2(-dx, -dz); game.debug.simulate(0.03, { moveY: 1 }); if (a.diveT > 0) dived = true; if (dived) break; } } finally { Math.random = rnd; } RT.ok(dived, 'an alien dives out of the way'); ({ dived, alive: !a.dead })"
+  "eval": "RT.play(); const R = game.rover; game.debug.simulate(2.0, {}); RT.ok(!R.flipped && R.onGround >= 3 && RT.up() > 0.7 && R.driving, 'back on its wheels, still driving ' + JSON.stringify(RT.get())); ({ after: RT.get() })"
+ },
+ {
+  "eval": "const R = game.rover; const a = game.aliens.byZone[0][0]; const c = RT.grid(-30, 30, 20, -20, 2, 0).find(([x, z]) => RT.lane(x, z, 0, 52, 3).clear); RT.ok(c, 'a clear lane for the run-over'); a.dive = () => {}; a.tower = true; a.pos.set(c[0], game.world.groundAt(c[0], c[1] - 50), c[1] - 50); a.home.copy(a.pos); game.debug.rover(c[0], c[1], 0); RT.mount(); game.player.pitch = -0.15; const s0 = game.stats.aliens; let hitAt = null; for (let i = 0; i < 200; i++) { if (!a.dead) game.player.yaw = Math.atan2(-(a.pos.x - R.pos.x), -(a.pos.z - R.pos.z)); game.debug.simulate(0.03, { moveY: 1 }); if (a.dead && hitAt === null) hitAt = +R.speed.toFixed(1); if (a.dead && a.pos.y > a.home.y + 2.5) break; } RT.ok(a.dead && a.flying && game.stats.aliens === s0 + 1, 'run over: bowled into the air, beaten and counted'); RT.freeze(); ({ lane: c, speedAtHit: hitAt, alienFlying: +(a.pos.y - a.home.y).toFixed(1), aliensBeaten: game.stats.aliens })"
+ },
+ {
+  "wait": 300
+ },
+ {
+  "shot": "rover10_strike.png"
+ },
+ {
+  "eval": "RT.play(); const R = game.rover; const a = game.aliens.byZone[0][1]; const c = RT.grid(-30, 30, 20, -20, 2, 0).reverse().find(([x, z]) => RT.lane(x, z, 0, 47, 3).clear); RT.ok(c, 'a clear lane for the dive'); a.pos.set(c[0], game.world.groundAt(c[0], c[1] - 45), c[1] - 45); a.home.copy(a.pos); a.onGround = true; const rnd = Math.random; Math.random = () => 0.05; let dived = false; try { game.debug.rover(c[0], c[1], 0); RT.mount(); a.alertTo(0); for (let i = 0; i < 150 && !a.dead; i++) { const dx = a.pos.x - R.pos.x, dz = a.pos.z - R.pos.z; game.player.yaw = Math.atan2(-dx, -dz); game.debug.simulate(0.03, { moveY: 1 }); if (a.diveT > 0) { dived = true; break; } } } finally { Math.random = rnd; } RT.ok(dived, 'an alien that sees it coming dives out of the way'); ({ dived, alive: !a.dead })"
  },
  {
   "eval": "const R = game.rover; const a = game.aliens.byZone[0][2]; game.debug.rover(a.pos.x - 3, a.pos.z + 3, 0); RT.mount(); game.debug.simulate(0.5, {}); const t0 = game.combat.tally.alien, sh = game.stats.shots; let hp0 = a.hp; game.debug.simulate(0.45, { fire: true }, true); for (let i = 0; i < 10; i++) { game.debug.simulate(0.03, { fire: true }, true); if (R.sinceFire === 0) break; } game.debug.simulate(0.03, { fire: false }, true); RT.freeze(); ({ shots: game.stats.shots - sh, hits: game.combat.tally.alien - t0, heat: +R.heat.toFixed(2), alienHp: [hp0, a.hp, a.dead] })"
@@ -120,25 +132,25 @@
   "wait": 300
  },
  {
-  "shot": "rover10_turret.png"
+  "shot": "rover11_turret.png"
  },
  {
   "eval": "RT.play(); const R = game.rover; game.debug.simulate(3, { fire: true }, true); RT.ok(game.stats.shots > 10 && game.combat.tally.alien > 3, 'turret hits'); ({ overheated: R.overheated, heat: +R.heat.toFixed(2), hits: game.combat.tally.alien, beaten: game.stats.aliens, zone0Left: game.aliens.aliveInZone(0), gate0: game.world.gates[0].open })"
  },
  {
-  "eval": "const R = game.rover; const bikes = game.aliens.list.filter((x) => x.T.bike); const b = bikes.find((x) => !x.dead) || bikes[0]; if (b.dead) b.reset(); b.dive = () => {}; const upd = b.updateBike; b.updateBike = function () { this.updateTransform(); }; b.pos.set(-12, game.world.groundAt(-12, -40) + 0.55, -40); game.debug.rover(-12, 5, 0); RT.mount(); let hit = null, snap = false; for (let i = 0; i < 300; i++) { const dx = b.pos.x - R.pos.x, dz = b.pos.z - R.pos.z; if (!b.dead) game.player.yaw = Math.atan2(-dx, -dz); game.debug.simulate(0.03, { moveY: 1 }); if (b.dead && hit === null) hit = +R.speed.toFixed(1); if (b.dead && b.root.position.y > b.home.y + 2) { snap = true; break; } } b.updateBike = upd; RT.ok(b.dead && !b.bike.visible, 'rammed a hover-bike: rider launched, bike popped'); RT.freeze(); ({ speedAtHit: hit, flying: snap })"
+  "eval": "RT.play(); const R = game.rover, P = game.player; game.debug.plains('gate'); game.debug.simulate(0.3, {}); const bikes = game.aliens.list.filter((x) => x.T.bike); RT.ok(bikes.length && bikes.every((b) => b.zone === game.level.zone || game.aliens.activeZones.has(b.zone)), 'the bikers wake up with the plains'); const b = bikes.find((x) => !x.dead); b.dive = () => {}; const upd = b.updateBike; b.updateBike = function () { this.updateTransform(); }; const c = RT.grid(P.pos.x - 60, P.pos.x + 20, P.pos.z - 10, P.pos.z - 90, 8, 0.6).find(([x, z, y]) => RT.lane(x, z, y, 45, 3).clear); RT.ok(c, 'a clear lane on the plains'); const fx = -Math.sin(c[2]), fz = -Math.cos(c[2]); b.pos.set(c[0] + fx * 40, game.world.groundAt(c[0] + fx * 40, c[1] + fz * 40) + 0.55, c[1] + fz * 40); b.home.copy(b.pos); game.debug.rover(c[0], c[1], c[2]); RT.mount(); let hit = null, snap = false; for (let i = 0; i < 300; i++) { const dx = b.pos.x - R.pos.x, dz = b.pos.z - R.pos.z; if (!b.dead) P.yaw = Math.atan2(-dx, -dz); game.debug.simulate(0.03, { moveY: 1 }); if (b.dead && hit === null) hit = +R.speed.toFixed(1); if (b.dead && b.root.position.y > b.home.y + 2) { snap = true; break; } } b.updateBike = upd; RT.ok(b.dead && b.flying && !b.bike.visible, 'rammed a hover-bike: rider launched, bike popped'); RT.freeze(); ({ lane: c, speedAtHit: hit, flying: snap })"
  },
  {
   "wait": 300
  },
  {
-  "shot": "rover11_bike.png"
+  "shot": "rover12_bike.png"
  },
  {
-  "eval": "RT.play(); const bikes = game.aliens.list.filter((x) => x.T.bike); let b = bikes.find((x) => !x.dead); if (!b) { b = bikes[0]; b.reset(); } game.debug.simulate(0.2, {}); RT.ok(b.bike.visible && b.root.visible, 'biker back on its bike'); b.hurt(99, b.pos); game.debug.simulate(1.2, {}); RT.ok(b.dead && b.gone && !b.bike.visible, 'shot hover-biker poofs with its bike'); ({ bikersLeft: game.aliens.list.filter((x) => x.T.bike && !x.dead).length, zone0Counts: game.aliens.aliveInZone(0) })"
+  "eval": "RT.play(); const bikes = game.aliens.list.filter((x) => x.T.bike); let b = bikes.find((x) => !x.dead); if (!b) { b = bikes[0]; b.reset(); } game.debug.simulate(0.2, {}); RT.ok(b.bike.visible && b.root.visible, 'biker back on its bike'); b.hurt(99, b.pos); game.debug.simulate(1.2, {}); RT.ok(b.dead && b.gone && !b.bike.visible, 'shot hover-biker poofs with its bike'); ({ bikersLeft: bikes.filter((x) => !x.dead).length, plainsCount: game.aliens.aliveInZone(3) })"
  },
  {
-  "eval": "const R = game.rover, P = game.player; game.debug.rover(0, 30, 0); RT.mount(); game.debug.simulate(0.5, {}); P.god = false; P.invuln = 0; P.shield = 0; P.shieldDelay = 99; P.health = 10; const h0 = P.health; for (let k = 0; k < 2; k++) { const from = R.pos.clone().add(new R.pos.constructor(6, 1.2, 0)); const to = P.pos.clone(); to.y += 1.1; const dir = to.sub(from).normalize(); game.combat.alienBolt(from, dir, 14, 1, 0x7dff6a, 0.5); for (let i = 0; i < 20; i++) game.debug.simulate(0.03, {}); P.shieldDelay = 9; } P.god = true; RT.ok(P.health === h0 - 1, 'two hits on the rover = one half-heart'); ({ healthBefore: h0, healthAfter: P.health })"
+  "eval": "const R = game.rover, P = game.player; game.debug.rover(0, 30, 0); RT.mount(); game.debug.simulate(0.5, {}); P.god = false; P.invuln = 0; P.shield = 0; P.shieldDelay = 99; P.health = 10; const h0 = P.health; for (let k = 0; k < 2; k++) { const from = R.pos.clone().add(new RT.V(6, 1.2, 0)); const to = P.pos.clone(); to.y += 1.1; const dir = to.sub(from).normalize(); game.combat.alienBolt(from, dir, 14, 1, 0x7dff6a, 0.5); for (let i = 0; i < 20; i++) game.debug.simulate(0.03, {}); P.shieldDelay = 9; } P.god = true; RT.ok(P.health === h0 - 1, 'two hits on the rover = one half-heart'); ({ healthBefore: h0, healthAfter: P.health })"
  },
  {
   "eval": "const R = game.rover; game.debug.rover(0, 30, 0.3); RT.mount(); game.debug.simulate(0.8, {}); game.debug.simulate(0.03, { interact: true }); RT.ok(!R.driving, 'E gets out'); const d = Math.hypot(game.player.pos.x - R.pos.x, game.player.pos.z - R.pos.z); game.debug.simulate(0.6, {}); RT.ok(game.player.vm.visible, 'blaster back: ' + JSON.stringify([R.cam.mode, R.hidVM, game.state])); game.player.yaw += 1.3; game.debug.simulate(0.1, {}); RT.freeze(); ({ besideRover: +d.toFixed(1), groundGap: +(game.player.pos.y - game.world.groundAt(game.player.pos.x, game.player.pos.z)).toFixed(2), cam: R.cam.mode })"
@@ -147,7 +159,7 @@
   "wait": 300
  },
  {
-  "shot": "rover12_out.png"
+  "shot": "rover13_out.png"
  },
  {
   "eval": "RT.play(); const R = game.rover, P = game.player; P.spawn(-10, -40, 0); game.debug.simulate(0.3, {}); const far = +R.pos.distanceTo(P.pos).toFixed(0); const prompt = document.getElementById('prompt').textContent; game.debug.simulate(0.9, { callHeld: true }); const near = +R.pos.distanceTo(P.pos).toFixed(1); RT.ok(near < 12 && far > 40, 'Hold R calls the rover'); game.debug.simulate(0.15, {}); RT.freeze(); ({ far, prompt, near })"
@@ -156,7 +168,7 @@
   "wait": 300
  },
  {
-  "shot": "rover13_called.png"
+  "shot": "rover14_called.png"
  },
  {
   "eval": "RT.play(); const R = game.rover, P = game.player; game.debug.simulate(0.6, {}); RT.ok(RT.mount(), 'in again'); P.god = false; P.invuln = 0; P.shield = 0; P.hurt(99, new P.pos.constructor(1, 0, 0)); ({ state: game.state, riderDown: R.riderDown })"
@@ -166,7 +178,7 @@
   "timeout": 20000
  },
  {
-  "eval": "const R = game.rover, P = game.player; P.god = true; const cp = game.level.checkpointAt(game.level.checkpoint); const d = Math.hypot(R.pos.x - cp.x, R.pos.z - cp.z); RT.ok(!R.driving && d < 15, 'respawn: rover parked near the checkpoint'); ({ roverFromCheckpoint: +d.toFixed(1), driving: R.driving, vm: P.vm.visible })"
+  "eval": "const R = game.rover, P = game.player; P.god = true; const cp = game.level.checkpointAt(game.level.checkpoint); const d = Math.hypot(R.pos.x - cp.x, R.pos.z - cp.z); RT.ok(!R.driving && d < 15, 'respawn: rover parked near the checkpoint'); ({ checkpoint: game.level.checkpoint, roverFromCheckpoint: +d.toFixed(1), driving: R.driving, vm: P.vm.visible })"
  },
  {
   "key": "KeyV",
@@ -179,7 +191,7 @@
   "eval": "const R = game.rover, P = game.player; const d = Math.hypot(R.pos.x - P.pos.x, R.pos.z - P.pos.z); RT.ok(d < 9, 'debug V puts it in front of you'); ({ vKey: +d.toFixed(1) })"
  },
  {
-  "eval": "const W = game.world, R = game.rover; W.dropDome(true); const cap = game.aliens.captain(); game.player.spawn(33, -596, 0); game.debug.simulate(0.3, {}); game.debug.rover(cap.pos.x, cap.pos.z + 16, 0); RT.mount(); R.vel.set(0, 0, -14); const hp0 = cap.hp; let bounced = false; for (let i = 0; i < 60; i++) { const dx = cap.pos.x - R.pos.x, dz = cap.pos.z - R.pos.z; game.player.yaw = Math.atan2(-dx, -dz); game.debug.simulate(0.03, { moveY: 1 }); if (R.shoves.get(cap) > 0) { bounced = true; break; } } game.debug.simulate(0.3, {}); RT.ok(bounced && !cap.dead && cap.hp === hp0, 'the Captain cannot be run over'); ({ bounced, captainAlive: !cap.dead, roverSpeedAfter: +R.speed.toFixed(1) })"
+  "eval": "const W = game.world, R = game.rover, P = game.player; W.dropDome(true); const cap = game.aliens.captain(); P.spawn(33, -596, 0); game.debug.simulate(0.3, {}); const cands = []; for (let a = -1.2; a <= 1.21; a += 0.2) for (const d of [16, 20]) { const yaw = a, fx = -Math.sin(yaw), fz = -Math.cos(yaw); cands.push([cap.pos.x - fx * d, cap.pos.z - fz * d, +yaw.toFixed(2), d]); } const c = cands.find(([x, z, yaw, d]) => RT.lane(x, z, yaw, d - 2, 2.5).clear); RT.ok(c, 'a clear lane to the Captain'); game.debug.rover(c[0], c[1], c[2]); RT.mount(); const fx = -Math.sin(c[2]), fz = -Math.cos(c[2]); R.vel.set(fx * 14, 0, fz * 14); const hp0 = cap.hp, sh0 = cap.shield; let bounced = false; for (let i = 0; i < 80; i++) { const dx = cap.pos.x - R.pos.x, dz = cap.pos.z - R.pos.z; P.yaw = Math.atan2(-dx, -dz); game.debug.simulate(0.03, { moveY: 1 }); if (R.shoves.get(cap) > 0) { bounced = true; break; } } game.debug.simulate(0.3, {}); RT.ok(bounced && !cap.dead && cap.hp === hp0 && !cap.flying, 'the Captain cannot be run over (big bounce, no damage)'); ({ lane: c, bounced, captainAlive: !cap.dead, captainHp: [hp0, cap.hp], roverSpeedAfter: +R.speed.toFixed(1) })"
  },
  {
   "eval": "({ stats: game.stats, state: game.state })"
