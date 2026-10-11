@@ -107,6 +107,18 @@ look sensitivity, invert, volume).
      git-ignored `dev/audio-src/LICENSES.md` + `MAPPING.md`.
    - Test browsers are muted (`dev/mute.mjs`), `BROWSER=chrome|webkit` picks the browser, `dev/fps.mjs` measures
      real frame rates (60 fps everywhere on an M1 Pro).
+7. **More time on Mars** (October 2026, after Matt said "we kind of leave Mars too quickly"), built alongside the
+   drivable rover and hover-bike aliens (`rover.js`, a parallel branch):
+   - **The Great Dust Plains**, a new area between the Crystal Forest and the Frozen Crater (about 250 x 330 m, west
+     of the old route): dunes, a launch ridge with an alien kicker ramp, the wing on a tall mesa you can only reach
+     by jumping the rover (`RAMP_ANGLE`, `MESA_GAP`, `MESA_HEIGHT` in `layout.js`), rock and metal ramps, stone
+     arches, buttes, craters with big rims and dust devils (`plains.js`). Its force field opens when you have the
+     wing. The Frozen Crater is now entered from the west; the crash site and the intro are unchanged.
+   - **Ship-part quests** (`missions.js`): the fuel tank is caged in the alien camp (get close and an alarm calls
+     four aliens out of the tents; beat everyone to drop the cage), the rover lies flipped at the camp's edge, the
+     thruster is frozen under an ice slab in the lake (three grenade blasts; a grenade crate on the shore), and Red
+     Rock Canyon has a supply crate behind the arch instead of the wing.
+   - Six areas and five force fields now. Mars saves are `v:2`; `v:1` saves migrate on load.
 
 Decisions and fixes worth knowing about:
 - The mothership was retuned for the reveal: lit from the front (the space sun moves for the capture shots), given a

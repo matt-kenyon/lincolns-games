@@ -34,6 +34,7 @@ npx playwright install chromium  # downloads the test browser
    BROWSER=webkit node run.mjs tests/full.json  # Safari's engine (needs `npx playwright install webkit` once)
    BROWSER=chrome node run.mjs tests/full.json  # the Google Chrome installed on this Mac
    BROWSER=webkit node fps.mjs                  # real frame rate in every area, MacBook-sized window at 2x
+   BROWSER=chrome node boot-time.mjs 3          # how long the game takes to load (fresh browser each run)
    BROWSER=chrome node cutscene-fps.mjs         # every cutscene in real time: slow frames per shot (see below)
    BROWSER=chrome node rover-fps.mjs            # real frame rate driving the rover flat out up the canyon
    ```
@@ -44,6 +45,16 @@ image:
 
 ```sh
 node grid.mjs out/sheet.png 3 out/c4_reveal.png out/c5_pull.png out/c6_press.png
+BROWSER=chrome node grid.mjs ...     # use the installed Chrome instead of Playwright's Chromium
+```
+
+`map.mjs` draws a top-down map of Mars with the path, force fields, checkpoints, parts, aliens and set pieces, each
+walkable spot tinted by the area the game thinks it's in, and checks that the force fields really seal each area
+(it floods the walkable ground from the start, opening one force field at a time):
+
+```sh
+node map.mjs                                                    # out/mars-map.png
+MAP_SCALE=3 MAP_BOX=-380,-740,-60,-380 node map.mjs out/plains-map.png   # zoom in on the plains
 ```
 
 (`BROWSER=chrome node grid.mjs ...` uses the installed Google Chrome, if Playwright's own Chromium isn't downloaded.)
@@ -54,8 +65,10 @@ To freeze the game for a screenshot after `game.debug.simulate()`, set `game.sta
 
 | Test | What it checks |
 | --- | --- |
-| `full.json` | The whole game: Mars intro, a fight, a part pickup, repair, the escape and capture cutscene, all mothership rooms and waves, GLORBAX, the escape pod, the end screen |
-| `regress.json` | Dying and respawning on both levels, CONTINUE on Mars and on level 2 (the "CONTINUE: LEVEL 2" label), the Mars to level 2 handoff |
+| `full.json` | The whole game: Mars intro, a fight, every ship part the way a player gets it (the camp raid fight and cage, the wing on the mesa, real grenades cracking the ice), the supply crates, repair, the escape and capture cutscene, all mothership rooms and waves, GLORBAX, the escape pod, the end screen |
+| `regress.json` | Dying and respawning on both levels (and during the camp raid), CONTINUE on Mars and on level 2 (the "CONTINUE: LEVEL 2" label), the Mars to level 2 handoff, old (v1, five-area) Mars saves migrating to the new route |
+| `plains.json` | The Great Dust Plains on foot: no way onto the mesa or its ledge path without the rover (jumps off the ramp at every timing, climbing every side), the way down works, the plains can be crossed on foot, the force field holds until you have the wing |
+| `plains-shots.json`, `quests-shots.json`, `plains-aerial.json` | Screenshots of the plains (ridge, kicker, mesa, ramps, arches, dust devils), the quests (supply crate, camp alarm and cage, the rover spot, the ice slab cracking) and the plains from the air |
 | `chapters.json` | The title screen's chapter select (arrow keys + Enter) and Chapter 2 starting from the escape off Mars |
 | `boss-balance.json` | Simulated boss fights on every difficulty, standing still and dodging (prints boss HP / player health every 5s) |
 | `capture-shots.json` | Screenshots through the capture cutscene (lurch, reveal, tractor beam, cockpit, hangar, KA-BOOM) |
@@ -63,7 +76,7 @@ To freeze the game for a screenshot after `game.debug.simulate()`, set `game.sta
 | `boss-shots.json` | Screenshots of each boss attack, rage mode and the death |
 | `rooms.json` | One screenshot of every mothership room |
 | `finale.json` | Screenshots of the escape pod ending and the end screen |
-| `perf.json` | Draw calls and triangles in each area of both levels |
+| `perf.json` | Draw calls and triangles in each area of both levels (including the camp, the plains and the frozen crater) |
 | `rover.json` | Lincoln's rover: getting in, top speed, a hard turn (drift) and the handbrake, a 25 degree ramp jump (measured: lip speed, peak height, distance), a wall crash that tips it over and "Hold E" flipping it back, running an alien over (counted as beaten), an alien diving out of the way, the turret, ramming a hover-biker, half damage on the rover, getting out, "Hold R" calling it, dying while driving, debug `V`, the Alien Captain bouncing it off. Screenshots `out/rover*.png` |
 | `astronaut.json` | Lincoln (the hero) in every cutscene shot he's in, plus a turntable of the model and his poses (`turntable.js`), and the first-person glove + blaster on Mars and the mothership. `turntable.js` also has `gunViews()`, the blaster from four angles |
 

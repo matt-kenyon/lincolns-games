@@ -55,7 +55,9 @@ saved in the browser, and RESET LOOK SETTINGS puts the look options back to norm
 
 | File | What's in it |
 | --- | --- |
-| `js/layout.js` | The level: canyon path, alien positions, where the ship parts landed |
+| `js/layout.js` | The level: canyon path, alien positions, where the ship parts landed, the wing jump's numbers |
+| `js/missions.js` | Mars quests: the alien camp raid, the rover, the thruster frozen in the ice, supply crates |
+| `js/plains.js` | The Great Dust Plains: dunes, the launch ridge and the mesa, ramps, arches, dust devils |
 | `js/config.js` | Difficulty levels and player stats (speed, jump height, blaster heat...) |
 | `js/aliens.js` | Alien looks, ranks (scout / trooper / major / captain, plus hover-bike riders) and how they fight |
 | `js/rover.js` | Lincoln's rover: the model, its bouncy driving physics, the chase camera, the turret, running aliens over |
@@ -81,7 +83,7 @@ kept old files (Safari especially) can mix old and new code after the update and
 
 ## Testing tips
 
-Add `?debug` to the URL for test keys: `1`-`5` jump to checkpoints, `K` defeats the aliens in the current
+Add `?debug` to the URL for test keys: `1`-`6` jump to checkpoints, `K` defeats the aliens in the current
 area, `I` toggles invincibility, `L` gives all ship parts, `9` jumps to level 2 (the mothership) and `0` jumps to
 its escape pod. On the mothership, `5` is the creature pit. On Mars, `V` puts the rover right in front of you. Add `&quality=low` or `&quality=high` to pin the
 graphics quality (normally it adjusts itself to keep the game smooth).

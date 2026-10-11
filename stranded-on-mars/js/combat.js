@@ -551,6 +551,7 @@ export class Combat {
         });
         g.audio.play('explosion', pos);
         const kills = g.aliens.damageRadius(pos, PLAYER.grenadeRadius, PLAYER.grenadeDamage);
+        this.game.level.onExplosion?.(pos, PLAYER.grenadeRadius);
         if (kills > 1) g.hud.toast(kills >= 3 ? 'TRIPLE POOF!' : 'DOUBLE POOF!', 1.8);
         if (kills > 0) this.hitStop();
         const d = g.player.pos.distanceTo(pos);

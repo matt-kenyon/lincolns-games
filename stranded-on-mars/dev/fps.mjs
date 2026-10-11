@@ -46,6 +46,11 @@ const sample = (label, setup, secs = 5) => page.evaluate(async ([label, setup, s
 const areas = [
     ['mars-start', 'game.newGame(); game.debug.skipIntro(); game.player.spawn(0,0,0);'],
     ['mars-fight1', 'game.player.spawn(14,-62,0.1);'],
+    ['mars-camp', 'game.debug.teleport(2);'],
+    ['mars-plains', "game.debug.plains('gate');"],
+    ['mars-ridge', "game.debug.plains('ridge');"],
+    ['mars-mesa', "game.debug.plains('mesa');"],
+    ['mars-frozen', 'game.debug.teleport(4);'],
     ['mars-crash', 'game.debug.openAll(); game.player.spawn(33,-600,0);'],
     ['ship-hangar', 'game.debug.stage2(0);'],
     ['ship-reactor', 'game.debug.teleport(1);'],

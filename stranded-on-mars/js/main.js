@@ -768,6 +768,7 @@ class Game {
         if (i.wasPressed('Digit3')) this.debug.teleport(2);
         if (i.wasPressed('Digit4')) this.debug.teleport(3);
         if (i.wasPressed('Digit5')) this.debug.teleport(4);
+        if (i.wasPressed('Digit6') && this.stage.key === 'mars') this.debug.teleport(5);
         if (i.wasPressed('KeyK')) this.debug.killZone();
         if (i.wasPressed('KeyI')) { this.player.god = !this.player.god; this.hud.toast('God mode ' + (this.player.god ? 'ON' : 'OFF')); }
         if (i.wasPressed('KeyL')) this.debug.allParts();
@@ -794,6 +795,7 @@ class Game {
     get debug() {
         const g = this;
         return {
+            ...(g.level.debugHelpers ? g.level.debugHelpers() : {}), // Mars: plains(spot), raid(), crackIce(n), jumpUV()
             teleport(cp) {
                 const c = g.level.checkpointAt(cp);
                 g.player.spawn(c.x, c.z, c.yaw);
@@ -805,7 +807,7 @@ class Game {
             openAll() {
                 for (let k = 0; k < GATES.length; k++) { g.world.openGate(k, true); g.aliens.clearZone(k); }
                 g.world.dropDome(true);
-                g.aliens.clearZone(4);
+                g.aliens.clearZone(ZONES.length - 1);
             },
             allParts() {
                 for (const id of PART_ORDER) {
