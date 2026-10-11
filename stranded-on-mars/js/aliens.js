@@ -5,7 +5,7 @@
 // ============================================================
 
 import * as THREE from 'three';
-import { GeoBuilder, toonMaterial, addOutline, glowSprite } from './toon.js';
+import { GeoBuilder, toonMaterial, addOutline, glowSprite, vcMat } from './toon.js';
 import { clamp, lerp, rand, damp, dampAngle, wrapAngle, randSign, smoothstep } from './util.js';
 
 export const ALIEN_TYPES = {
@@ -13,6 +13,8 @@ export const ALIEN_TYPES = {
     trooper: { name: 'Trooper', hp: 4,  speed: 4.2, scale: 1.0,  armor: 0x7b4bb0, armorDark: 0x4f2d80, burst: 2, cooldown: [1.5, 2.5], prefer: [11, 21], leash: 30, boltSize: 0.55 },
     major:   { name: 'Major',   hp: 7,  speed: 4.0, scale: 1.1,  armor: 0xe0483f, armorDark: 0x8a2230, burst: 3, cooldown: [1.8, 2.8], prefer: [11, 21], leash: 32, boltSize: 0.6 },
     captain: { name: 'Alien Captain', hp: 16, shield: 10, speed: 4.6, scale: 1.45, armor: 0xf2c14e, armorDark: 0xb8862a, burst: 4, cooldown: [1.5, 2.3], prefer: [9, 18], leash: 22, boltSize: 0.85, boss: true },
+    // rides a hover-bike: zooms around open ground, circles and strafes you, dive-bombs past (spawns: layout.js HOVERBIKES)
+    hoverbike: { name: 'Hover Biker', hp: 4, speed: 11, scale: 0.92, armor: 0x35c9b0, armorDark: 0x1f7f78, burst: 2, cooldown: [1.7, 2.7], prefer: [11, 19], leash: 90, boltSize: 0.5, bike: true },
 };
 
 // How each rank is built (on top of the shared body plan)
@@ -23,6 +25,7 @@ const STYLE = {
     trooper: { w: 1.0,  belly: 1.0,  head: 1.04, ears: 'fin',   ant: 'short', hat: 'helmet', eyes: 2, tusk: 1.0,  pads: 1, boots: true,  pack: true },
     major:   { w: 1.14, belly: 1.06, head: 1.04, ears: 'spiky', ant: null,    hat: 'mohawk', eyes: 3, tusk: 1.25, pads: 2, boots: true,  pack: true },
     captain: { w: 1.2,  belly: 1.2,  head: 1.08, ears: 'fin',   ant: null,    hat: 'crown',  eyes: 2, tusk: 1.4,  pads: 2, boots: true,  pack: false, cape: true },
+    hoverbike: { w: 0.9, belly: 0.95, head: 1.08, ears: 'bat',   ant: 'short', hat: 'helmet', eyes: 2, tusk: 0.9,  pads: 1, boots: true,  pack: false, goggles: true },
 };
 
 const SKIN = 0x3f8fe6, SKIN_LIGHT = 0x86c6ff, SKIN_DARK = 0x2a5fb3, BELLY = 0xa9dcff, SPOT = 0x2f72cc;
@@ -243,7 +246,15 @@ function partGeos(typeId) {
                 const uy = (pos.getY(i) - hc[1]) / hr[1], uz = (pos.getZ(i) - hc[2]) / hr[2];
                 c.set(uy < lerp(c1, c0, (uz + 1) / 2) + 0.09 ? AD : A);
             }], { p: hc, s: hr });
-        if (!major) {
+        if (ST.goggles) {
+            // racing goggles pushed up on the helmet, and their strap
+            for (const sx of [-1, 1]) {
+                const gp = onSkull(sx * 0.12, 0.6, 0.26);
+                b.add(new THREE.CylinderGeometry(0.075, 0.08, 0.06, 14), AD, { p: [gp[0], gp[1] + 0.02, gp[2] + 0.02], r: [Math.PI / 2 - 0.5, 0, sx * -0.25] });
+                b.add(sph(10, 6), 0x9ff6ff, { p: [gp[0] * 1.03, gp[1] + 0.035, gp[2] + 0.05], r: [-0.5, 0, 0], s: [0.06, 0.06, 0.02] }, 0.7);
+            }
+            b.add(torus(0.36 * H, 0.022, 4, 22), AD, { p: [0, 0.59, -0.03], r: [Math.PI / 2 - 0.25, 0, 0], s: [1.04, 1.0, 1] });
+        } else if (!major) {
             const gp = onSkull(0, 0.6, 0.3);
             b.add(sph(8, 6), GUN_GLOW, { p: [0, gp[1] + 0.05, gp[2] + 0.04], s: [0.05, 0.035, 0.025] }, 1.3);
             b.add(blob(() => {}, 8, 6), AD, { p: [0, 0.68, -0.1], r: [0.3, 0, 0], s: [0.035, 0.07, 0.2] });
@@ -393,6 +404,39 @@ function alertTexture() {
     _alertTex = new THREE.CanvasTexture(c);
     _alertTex.colorSpace = THREE.SRGBColorSpace;
     return _alertTex;
+}
+
+// The hover-bike: a fat purple scooter-saucer with glowing green thrusters underneath. Its floor (where the
+// rider's feet go) is at y = 0 and the nose points +Z, like the alien riding it.
+const BIKE_HOVER = 0.55;   // the bike's floor floats this high above the ground
+let _bikeGeo = null;
+function bikeGeometry() {
+    if (_bikeGeo) return _bikeGeo;
+    const T = ALIEN_TYPES.hoverbike;
+    const b = new GeoBuilder();
+    b.add(blob((v) => { if (v.y > 0) v.y *= 0.7; v.x *= 1 - 0.2 * v.z; }, 18, 10), GUN, { p: [0, 0.1, 0.05], s: [0.46, 0.27, 1.0] });
+    b.add(torus(0.44, 0.045, 4, 24), T.armor, { p: [0, 0.12, 0.05], r: [Math.PI / 2, 0, 0], s: [1.02, 2.2, 1] });
+    // nose cowl with a headlight, and a little windshield
+    b.add(sph(12, 8), T.armor, { p: [0, 0.27, 0.7], s: [0.3, 0.2, 0.32] });
+    b.add(sph(8, 6), GUN_GLOW, { p: [0, 0.29, 0.99], s: [0.13, 0.09, 0.05] }, 1.6);
+    b.add(sph(10, 6), 0x9ff6ff, { p: [0, 0.5, 0.66], r: [-0.55, 0, 0], s: [0.24, 0.16, 0.03] }, 0.5);
+    // seat, handlebars with grips, footpegs
+    b.add(sph(10, 6), GUN_DARK, { p: [0, 0.31, -0.18], s: [0.24, 0.08, 0.36] });
+    b.add(limb(0.026, 0.026, 0.3, 6), GUN_DARK, { p: [0, 0.66, 0.48], r: [0.35, 0, 0] });
+    b.add(limb(0.026, 0.026, 0.72, 6), GUN_DARK, { p: [-0.36, 0.66, 0.48], r: [0, 0, Math.PI / 2] });
+    for (const sx of [-1, 1]) {
+        b.add(sph(8, 6), T.armorDark, { p: [sx * 0.37, 0.66, 0.48], s: [0.05, 0.05, 0.09] });
+        b.add(sph(6, 4), GUN_DARK, { p: [sx * 0.33, 0.1, 0.42], s: [0.13, 0.04, 0.15] });
+        // tail fins
+        b.add(fang(0.3), T.armorDark, { p: [sx * 0.2, 0.22, -0.78], r: [-1.95, 0, sx * 0.45], s: [0.05, 0.36, 0.16] });
+    }
+    // thruster pods with glowing discs facing down
+    for (const [x, z] of [[-0.33, 0.45], [0.33, 0.45], [-0.29, -0.5], [0.29, -0.5]]) {
+        b.add(sph(10, 6), GUN_DARK, { p: [x, -0.04, z], s: [0.16, 0.1, 0.2] });
+        b.add(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 12), GUN_GLOW, { p: [x, -0.12, z] }, 1.8);
+    }
+    _bikeGeo = b.build();
+    return _bikeGeo;
 }
 
 // ------------------------------------------------------------
@@ -776,6 +820,18 @@ export class Alien {
             this.model.body.add(shell);
             this.shell = shell;
         }
+        if (this.T.bike) {
+            // riding a hover-bike: the alien sits on its seat
+            this.bike = new THREE.Mesh(bikeGeometry(), vcMat());
+            this.bike.castShadow = true;
+            addOutline(this.bike, OUTLINE, 0.0042);
+            this.root.add(this.bike);
+            this.bikeGlow = glowSprite(GUN_GLOW, 1.9, 0.6);
+            this.bikeGlow.position.set(0, -0.3, 0);
+            this.root.add(this.bikeGlow);
+            this.model.body.position.set(0, 0.38 - 0.3 * this.T.scale, -0.16);
+            this.root.rotation.order = 'YXZ';
+        }
         this.reset();
     }
 
@@ -788,6 +844,14 @@ export class Alien {
         const d = this.def;
         this.pos.set(d.x, g.world.groundAt(d.x, d.z), d.z);
         if (this.tower) this.pos.y = g.world.towerTop;
+        if (this.bike) {
+            this.pos.y += BIKE_HOVER;
+            this.bike.visible = this.bikeGlow.visible = true;
+            this.chargeT = rand(5, 9);
+            this.charging = 0;
+        }
+        this.flying = null;
+        this.diveT = 0;
         this.home.copy(this.pos);
         this.vel.set(0, 0, 0);
         this.vy = 0;
@@ -844,7 +908,7 @@ export class Alien {
         if (!this.dead) this.root.rotation.y = this.yaw;
         const s = this.T.scale;
         // hit capsule: from the knees to the middle of the head (its radius covers the rest)
-        this.capA.set(this.pos.x, this.pos.y + 0.35 * s, this.pos.z);
+        this.capA.set(this.pos.x, this.pos.y + (this.bike ? -0.2 : 0.35 * s), this.pos.z);
         this.capB.set(this.pos.x, this.pos.y + ALIEN_CAP_TOP * s, this.pos.z);
     }
 
@@ -927,6 +991,81 @@ export class Alien {
         g.audio.play('teleport', this.pos);
     }
 
+    // Bowled over by the rover: it flies off spinning like a bowling pin, then POOF.
+    // Counts as beaten, just like a blaster kill (stats, drops, clearing the area).
+    launch(vel) {
+        if (this.dead || this.T.boss) return false;
+        const h = Math.hypot(vel.x, vel.z) || 1;
+        this.flying = {
+            vel: vel.clone(),
+            axis: new THREE.Vector3(vel.z / h, rand(-0.3, 0.3), -vel.x / h).normalize(),
+            spin: rand(10, 14),
+            q: this.root.quaternion.clone(),
+        };
+        this.hp = 0;
+        this.popBike();
+        this.die();
+        this.game.audio.play('boing', this.pos);
+        return true;
+    }
+
+    // Shoved (bumped by the rover): keep sliding / hopping for t seconds before walking again
+    knock(vx, vz, vy = 0, t = 0.3) {
+        if (this.dead || this.dormant || this.tower) return;
+        this.vel.x = vx;
+        this.vel.z = vz;
+        if (vy && !this.bike) this.vy = Math.max(this.vy, vy);
+        this.diveT = Math.max(this.diveT, t);
+    }
+
+    // Yikes, a rover! Yell and dive sideways out of its way (dx, dz: which way)
+    dive(dx, dz) {
+        if (this.dead || this.dormant || this.tower || this.diveT > 0 || !(this.onGround || this.bike)) return;
+        this.knock(dx * (this.bike ? 12 : 9), dz * (this.bike ? 12 : 9), 5.5, 0.65);
+        this.model.showAlert();
+        this.game.audio.play('alienAlert', this.pos);
+        if (this.state === 'idle') { this.state = 'alert'; this.stateT = 0; this.alertShown = true; }
+    }
+
+    // the hover-bike pops in a puff (its rider was beaten or bowled off it)
+    popBike() {
+        if (!this.bike || !this.bike.visible) return;
+        const g = this.game;
+        this.bike.visible = this.bikeGlow.visible = false;
+        const p = this.root.position;
+        g.effects.poof(p.x, p.y - 0.35, p.z, 0.8);
+        g.effects.sparks(p.x, p.y + 0.1, p.z, GUN_GLOW, 14, 6, 0.14);
+        g.audio.play('poof', p);
+    }
+
+    // flying through the air after being bowled over
+    updateFlying(dt) {
+        const g = this.game;
+        const m = this.model;
+        const F = this.flying;
+        const s = this.T.scale;
+        this.dyingT += dt;
+        const d = this.dyingT;
+        F.vel.y -= 13 * dt;
+        this.pos.addScaledVector(F.vel, dt);
+        F.q.premultiply(_q.setFromAxisAngle(F.axis, F.spin * dt));
+        // spin around the middle of the body, like a bowling pin
+        _v.set(0, 0.9 * s, 0);
+        _v2.copy(_v).applyQuaternion(F.q);
+        this.root.quaternion.copy(F.q);
+        this.root.position.copy(this.pos).add(_v).sub(_v2);
+        m.dying = 0.2 + 0.1 * Math.sin(d * 18);
+        m.animate(dt, 0);
+        if (this.gone) return;
+        const gy = g.world.groundAt(this.pos.x, this.pos.z);
+        if (d > 1.25 || (d > 0.45 && F.vel.y < 0 && this.pos.y + 0.9 * s < gy + 0.7)) {
+            this.gone = true;
+            this.root.visible = false;
+            g.effects.poof(this.pos.x, Math.max(gy, this.pos.y + 0.3 * s), this.pos.z, s);
+            g.audio.play('poof', this.pos);
+        }
+    }
+
     die() {
         const g = this.game;
         this.dead = true;
@@ -974,6 +1113,7 @@ export class Alien {
             return;
         }
         if (this.dead) {
+            if (this.flying) { this.updateFlying(dt); return; }
             // pop up, spin like a top, go splat... then POOF
             this.dyingT += dt;
             const d = this.dyingT;
@@ -992,6 +1132,7 @@ export class Alien {
                 _v.set(0, 0.85 * s, 0).applyEuler(this.root.rotation).add(this.pos);
                 g.effects.poof(_v.x, _v.y, _v.z, s * (T.boss ? 1.6 : 1));
                 g.audio.play('poof', this.pos);
+                this.popBike();
             }
             return;
         }
@@ -1028,7 +1169,7 @@ export class Alien {
             const gunY = this.pos.y + 1.45 * T.scale;
             const chestY = P.pos.y + 1.15;
             // can I actually hit you from here? (same line my plasma would fly along)
-            this.canSee = !P.dead && dist < diff.sight * (this.state === 'combat' ? 1.6 : 1) &&
+            this.canSee = !P.dead && dist < diff.sight * (this.state === 'combat' ? 1.6 : 1) * (T.bike ? 1.5 : 1) &&
                 g.world.lineOfSight(this.pos.x, gunY, this.pos.z, P.pos.x, chestY, P.pos.z) &&
                 !g.world.segmentHitsGate(this.pos.x, eyeY, this.pos.z, pe.x, pe.y, pe.z);
         }
@@ -1038,6 +1179,7 @@ export class Alien {
         } else {
             this.seeT += dt;
         }
+        if (this.bike) { this.updateBike(dt, dx, dz, dist); return; }
 
         let wantX = 0, wantZ = 0, speed = 0;
         const toPlayerYaw = Math.atan2(dx, dz);
@@ -1129,8 +1271,11 @@ export class Alien {
 
         // ----- movement -----
         const accel = 18;
-        this.vel.x = damp(this.vel.x, wantX * speed, accel / Math.max(speed, 1) + 4, dt);
-        this.vel.z = damp(this.vel.z, wantZ * speed, accel / Math.max(speed, 1) + 4, dt);
+        if (this.diveT > 0) this.diveT -= dt; // diving out of the rover's way (or shoved): keep sliding
+        else {
+            this.vel.x = damp(this.vel.x, wantX * speed, accel / Math.max(speed, 1) + 4, dt);
+            this.vel.z = damp(this.vel.z, wantZ * speed, accel / Math.max(speed, 1) + 4, dt);
+        }
         if (this.tower) { this.vel.x = 0; this.vel.z = 0; }
         this.pos.x += this.vel.x * dt;
         this.pos.z += this.vel.z * dt;
@@ -1193,6 +1338,129 @@ export class Alien {
         this.updateTransform();
     }
 
+    // Hover-bike riders zoom around the open ground: they circle and strafe you, shoot, and now and then
+    // dive-bomb straight past. The bike drifts like a hovercraft and leans into its turns.
+    updateBike(dt, dx, dz, dist) {
+        const g = this.game;
+        const m = this.model;
+        const T = this.T;
+        const P = g.player;
+        const W = g.world;
+        const toPlayerYaw = Math.atan2(dx, dz);
+        let wantX = 0, wantZ = 0, speed = 0, face = this.yaw;
+        if (P.dead) {
+            m.aim = damp(m.aim, 0, 6, dt);
+            m.cheer = damp(m.cheer, this.state === 'combat' ? 1 : 0, 4, dt);
+        } else {
+            m.cheer = damp(m.cheer, 0, 6, dt);
+            if (this.state === 'idle') {
+                m.aim = damp(m.aim, 0, 4, dt);
+                if (this.canSee) { this.alertTo(0); this.mgr.alertNearby(this, 30, 0.5); }
+                // lazy loops around home
+                const a = this.stateT * 0.3 + this.index;
+                const hx = this.home.x + Math.sin(a) * 7 - this.pos.x, hz = this.home.z + Math.sin(a * 2) * 4 - this.pos.z;
+                const hd = Math.hypot(hx, hz);
+                if (hd > 0.3) { wantX = hx / hd; wantZ = hz / hd; speed = Math.min(4.5, hd * 2); face = Math.atan2(wantX, wantZ); }
+            } else if (this.state === 'alert') {
+                face = toPlayerYaw;
+                if (this.stateT >= 0 && !this.alertShown) {
+                    this.alertShown = true;
+                    m.showAlert();
+                    g.audio.play('alienAlert', this.pos);
+                    this.lastSeen.copy(P.pos);
+                }
+                if (this.stateT > g.diff.reaction * 0.7) {
+                    this.state = 'combat';
+                    this.stateT = 0;
+                    this.cooldown = rand(0.5, 1.2) / g.diff.fireRate;
+                }
+            } else {
+                m.aim = damp(m.aim, 1, 6, dt);
+                const tx = (this.canSee ? P.pos.x : this.lastSeen.x) - this.pos.x;
+                const tz = (this.canSee ? P.pos.z : this.lastSeen.z) - this.pos.z;
+                const td = Math.hypot(tx, tz) || 1;
+                const nx = tx / td, nz = tz / td;
+                this.chargeT -= dt;
+                if (this.charging > 0) {
+                    // dive-bomb: zoom straight past
+                    this.charging -= dt;
+                    wantX = this.chargeX; wantZ = this.chargeZ; speed = T.speed * 1.3;
+                    face = Math.atan2(wantX, wantZ);
+                } else {
+                    // circle around at a comfy range, sliding sideways while facing you
+                    const [pmin, pmax] = T.prefer;
+                    const radial = clamp((td - (pmin + pmax) / 2) / 5, -1, 1);
+                    this.strafeT -= dt;
+                    if (this.strafeT <= 0) { this.strafeT = rand(2.5, 5); this.strafeDir = -this.strafeDir || 1; }
+                    wantX = nx * radial - nz * this.strafeDir;
+                    wantZ = nz * radial + nx * this.strafeDir;
+                    const wl = Math.hypot(wantX, wantZ) || 1;
+                    wantX /= wl; wantZ /= wl;
+                    speed = T.speed * (this.canSee ? 0.85 : 1);
+                    face = Math.atan2(tx, tz);
+                    if (this.chargeT <= 0 && this.canSee && td < 40) {
+                        this.chargeT = rand(6, 10);
+                        this.charging = 1.6;
+                        this.chargeX = nx; this.chargeZ = nz;
+                        m.kick('alert');
+                        g.audio.play('alienAlert', this.pos);
+                    }
+                }
+                this.updateShooting(dt, td);
+            }
+        }
+        // hover-drift: slow to change direction, so it slides round corners
+        const pvx = this.vel.x, pvz = this.vel.z;
+        if (this.diveT > 0) this.diveT -= dt;
+        else {
+            this.vel.x = damp(this.vel.x, wantX * speed, 2.6, dt);
+            this.vel.z = damp(this.vel.z, wantZ * speed, 2.6, dt);
+        }
+        this.pos.x += this.vel.x * dt;
+        this.pos.z += this.vel.z * dt;
+        const hx = this.pos.x - this.home.x, hz = this.pos.z - this.home.z, hd = Math.hypot(hx, hz);
+        if (hd > T.leash) { this.pos.x = this.home.x + (hx / hd) * T.leash; this.pos.z = this.home.z + (hz / hd) * T.leash; }
+        W.confineAlien(this.pos, this.radius);
+        W.colliders.resolve(this.pos, this.radius, 2, -1);
+        W.blockByGates(this.pos, 0.9);
+        W.domeBlocks(this.pos, 0.9);
+        this.mgr.separate(this);
+        // float above the ground on a bouncy cushion of thrust
+        const hover = W.groundAt(this.pos.x, this.pos.z) + BIKE_HOVER + Math.sin(this.stateT * 2.6 + this.index) * 0.07;
+        this.vy += ((hover - this.pos.y) * 45 - this.vy * 9) * dt;
+        this.pos.y = Math.max(this.pos.y + this.vy * dt, hover - 0.4);
+        this.onGround = true;
+        this.yaw = dampAngle(this.yaw, face, 5, dt);
+        // lean into turns, tip with speed changes
+        const ax = (this.vel.x - pvx) / Math.max(dt, 1e-4), az = (this.vel.z - pvz) / Math.max(dt, 1e-4);
+        const fy = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+        this.bank = damp(this.bank || 0, clamp((ax * fz - az * fy) * 0.03, -0.45, 0.45), 6, dt);
+        this.tilt = damp(this.tilt || 0, clamp((ax * fy + az * fz) * 0.02 + 0.05, -0.25, 0.3), 6, dt);
+        // the rider: sitting, aiming at you with the gun arm
+        m.move = 0; m.air = false; m.fwd = 0; m.side = 0;
+        m.windup = this.burstLeft > 0 ? 0 : this.charge;
+        const relYaw = wrapAngle(toPlayerYaw - this.yaw);
+        const pitch = Math.atan2(P.eyePos.y - 0.4 - (this.pos.y + 1.3 * T.scale), Math.max(dist, 1));
+        const engaged = this.state === 'combat' || this.state === 'alert';
+        m.lookYaw = damp(m.lookYaw, engaged ? clamp(relYaw, -0.8, 0.8) : 0, 5, dt);
+        m.lookPitch = damp(m.lookPitch, engaged ? clamp(-pitch, -0.6, 0.6) : 0, 5, dt);
+        m.muzzleGlow.visible = this.charge > 0.01;
+        m.muzzleGlow.material.opacity = this.charge;
+        m.muzzleGlow.scale.setScalar(0.3 + this.charge * 0.9);
+        m.setOutlines(dist < 45);
+        m.animate(dt, 0);
+        m.hips.position.y = 0.3;
+        for (const L of m.legs) L.hip.rotation.set(-1.25, L.side * 0.12, L.side * 0.22);
+        if (m.cheer < 0.3) {
+            m.arms[0].sh.rotation.set(-1.2, 0, -0.18);
+            m.arms[0].el.rotation.set(-0.45, 0, 0);
+        }
+        this.updateTransform();
+        this.root.rotation.x = this.tilt;
+        this.root.rotation.z = this.bank;
+        this.bikeGlow.material.opacity = 0.5 + Math.sin(this.stateT * 31 + this.index) * 0.08 + clamp(Math.hypot(this.vel.x, this.vel.z) / 25, 0, 0.3);
+    }
+
     updateShooting(dt, dist) {
         const g = this.game;
         const diff = g.diff;
@@ -1251,9 +1519,12 @@ export class Alien {
 // ------------------------------------------------------------
 export class AlienManager {
     // zones: [{ name, aliens: [{ type, x, z, wave?, yaw?, tower? }] }]
-    constructor(game, zones) {
+    // extras: more aliens [{ type, x, z, zone }] (the hover-bikes) that live in a zone (they wake up and
+    // sleep with it) but don't count toward clearing it, so they never hold a force field closed
+    constructor(game, zones, extras = []) {
         this.game = game;
         this.zones = zones;
+        this.extras = extras;
         this.list = [];
         this.byZone = zones.map(() => []);
         this.activeZones = new Set();
@@ -1269,6 +1540,15 @@ export class AlienManager {
                 this.list.push(a);
                 this.byZone[zi].push(a);
             });
+        });
+        this.extras.forEach((def, i) => {
+            const zi = def.zone || 0;
+            const a = new Alien(this.game, def, zi, 100 + i, this);
+            a.extra = true;
+            a.root.visible = false;
+            this.game.scene.add(a.root);
+            this.list.push(a);
+            (this.byZone[zi] || (this.byZone[zi] = [])).push(a);
         });
     }
 
@@ -1289,7 +1569,7 @@ export class AlienManager {
 
     aliveInZone(zi) {
         let n = 0;
-        for (const a of this.byZone[zi]) if (!a.dead) n++;
+        for (const a of this.byZone[zi] || []) if (!a.dead && !a.extra) n++;
         return n;
     }
 

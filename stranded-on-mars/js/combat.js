@@ -349,9 +349,11 @@ export class Combat {
                         this.tally.alien++;
                     }
                 } else if (!P.dead) {
-                    if (P.hitBySegment(b.prev, b.pos, b.size * 0.4)) {
+                    // on the rover, a hit on it or on Lincoln does half damage (rover.js)
+                    const ride = g.rover && g.rover.driving ? g.rover : null;
+                    if (ride ? ride.hitBySegment(b.prev, b.pos, b.size * 0.4) : P.hitBySegment(b.prev, b.pos, b.size * 0.4)) {
                         const hurts = !P.god && P.invuln <= 0;
-                        P.hurt(b.dmg, b.vel);
+                        P.hurt(ride ? b.dmg * 0.5 : b.dmg, b.vel);
                         if (hurts) {
                             // knocked a little: roll away from the side it came from + a small FOV pulse
                             const side = Math.sign(b.vel.x * Math.cos(P.yaw) - b.vel.z * Math.sin(P.yaw)) || 1;
@@ -534,6 +536,8 @@ export class Combat {
 
     // Where the blaster's muzzle is in the world right now
     muzzleWorld(out) {
+        const R = this.game.rover;
+        if (R && R.driving) return R.muzzleWorld(out);
         const P = this.game.player;
         P.vm.muzzle.getWorldPosition(out);
         return P.vmToWorld(out);

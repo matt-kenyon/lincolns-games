@@ -35,6 +35,7 @@ npx playwright install chromium  # downloads the test browser
    BROWSER=chrome node run.mjs tests/full.json  # the Google Chrome installed on this Mac
    BROWSER=webkit node fps.mjs                  # real frame rate in every area, MacBook-sized window at 2x
    BROWSER=chrome node cutscene-fps.mjs         # every cutscene in real time: slow frames per shot (see below)
+   BROWSER=chrome node rover-fps.mjs            # real frame rate driving the rover flat out up the canyon
    ```
 
 Each `eval` step prints its result, so a test reads like a log. The run ends with `OK, no errors` or a count of
@@ -44,6 +45,10 @@ image:
 ```sh
 node grid.mjs out/sheet.png 3 out/c4_reveal.png out/c5_pull.png out/c6_press.png
 ```
+
+(`BROWSER=chrome node grid.mjs ...` uses the installed Google Chrome, if Playwright's own Chromium isn't downloaded.)
+To freeze the game for a screenshot after `game.debug.simulate()`, set `game.state = 'paused'` in an `eval` step
+(it keeps drawing the frame without moving anything) and `'play'` again afterwards; `tests/rover.json` does this.
 
 ## The tests
 
@@ -59,6 +64,7 @@ node grid.mjs out/sheet.png 3 out/c4_reveal.png out/c5_pull.png out/c6_press.png
 | `rooms.json` | One screenshot of every mothership room |
 | `finale.json` | Screenshots of the escape pod ending and the end screen |
 | `perf.json` | Draw calls and triangles in each area of both levels |
+| `rover.json` | Lincoln's rover: getting in, top speed, a hard turn (drift) and the handbrake, a 25 degree ramp jump (measured: lip speed, peak height, distance), a wall crash that tips it over and "Hold E" flipping it back, running an alien over (counted as beaten), an alien diving out of the way, the turret, ramming a hover-biker, half damage on the rover, getting out, "Hold R" calling it, dying while driving, debug `V`, the Alien Captain bouncing it off. Screenshots `out/rover*.png` |
 | `astronaut.json` | Lincoln (the hero) in every cutscene shot he's in, plus a turntable of the model and his poses (`turntable.js`), and the first-person glove + blaster on Mars and the mothership. `turntable.js` also has `gunViews()`, the blaster from four angles |
 
 ## Combat effects, frame by frame

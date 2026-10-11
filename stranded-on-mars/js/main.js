@@ -17,9 +17,10 @@ import { ZONES as SHIP_ZONES } from './shiplayout.js';
 import { HUD } from './hud.js';
 import { AudioEngine } from './audio.js';
 import { Input } from './input.js';
+import { Rover } from './rover.js';
 import { Cinematics } from './cinematics.js';
 import { DIFFICULTY } from './config.js';
-import { pathPointAt, SHIP, PART_ORDER, ZONES, GATES } from './layout.js';
+import { pathPointAt, SHIP, PART_ORDER, ZONES, GATES, HOVERBIKES } from './layout.js';
 import { partSlotWorld } from './ship.js';
 import { clamp, damp, lerp, easeInOut } from './util.js';
 import { loadSettings, saveSettings, mountSettings } from './settings.js';
@@ -77,12 +78,15 @@ class Game {
         this.world.build(progress);
         await nextFrame();
         progress(0.9, 'Waking up the aliens...');
-        this.aliens = new AlienManager(this, ZONES);
+        this.aliens = new AlienManager(this, ZONES, HOVERBIKES.map((b) => ({ type: 'hoverbike', ...b })));
         this.aliens.build();
         this.combat = new Combat(this);
         this.player = new Player(this);
         this.level = new Level(this);
         this.level.build();
+        // Lincoln's rover (Mars only; hidden until the level places it)
+        this.rover = new Rover(this);
+        this.rover.build();
         this.stages = { mars: this.captureStage('mars') };
         this.stage = this.stages.mars;
         this.cine = new Cinematics(this);
@@ -201,7 +205,7 @@ class Game {
     // own scene, world, effects, aliens, bolts and level logic; switching swaps them.
     // --------------------------------------------------------
     captureStage(key) {
-        return { key, scene: this.scene, world: this.world, effects: this.effects, aliens: this.aliens, combat: this.combat, level: this.level };
+        return { key, scene: this.scene, world: this.world, effects: this.effects, aliens: this.aliens, combat: this.combat, level: this.level, rover: key === 'mars' ? this.rover : null };
     }
 
     useStage(st) {
@@ -212,6 +216,7 @@ class Game {
         this.aliens = st.aliens;
         this.combat = st.combat;
         this.level = st.level;
+        this.rover = st.rover || null;
         st.scene.add(this.camera);
     }
 
@@ -412,6 +417,7 @@ class Game {
     }
 
     onPlayerDown() {
+        this.rover?.onPlayerDown();
         this.setState('dead');
         this.level.onPlayerDown();
         this.audio.heartbeat(false);
@@ -421,6 +427,7 @@ class Game {
 
     // Rebuild the ship (pieces fly in one by one), then the ending
     startRepairSequence(level) {
+        this.rover?.dismount(true);
         this.setState('repair');
         this.player.locked = true;
         this.player.vm.visible = false;
@@ -583,6 +590,9 @@ class Game {
                 this.renderCine();
                 break;
         }
+        // the rover's engine goes quiet whenever you're not driving it (menus, cutscenes, the mothership)
+        const mr = this.stages && this.stages.mars && this.stages.mars.rover;
+        if (mr) mr.updateAudio(this.state === 'play' && this.rover === mr);
         this.input.endFrame();
         this.adaptQuality(dt);
     }
@@ -641,10 +651,13 @@ class Game {
         this.time += dt;
         this.stats.time += dt;
         const P = this.player;
+        const R = this.rover;
         P.update(dt, inp);
+        if (R) R.update(dt, inp);
         this.aliens.update(dt);
         this.combat.update(dt);
         this.level.update(dt);
+        if (R) R.lateUpdate(dt, inp);
         P.updateCamera(this.camera, dt);
         this.world.update(dt, this.camera, P.pos);
         this.effects.update(dt);
@@ -656,6 +669,7 @@ class Game {
 
     updateDead(dt) {
         const P = this.player;
+        if (this.rover) this.rover.update(dt, null);
         this.aliens.update(dt);
         this.combat.update(dt);
         this.effects.update(dt);
@@ -759,6 +773,7 @@ class Game {
         if (i.wasPressed('KeyL')) this.debug.allParts();
         if (i.wasPressed('Digit9')) this.debug.stage2();
         if (i.wasPressed('Digit0')) this.debug.stage2(5);
+        if (i.wasPressed('KeyV') && this.rover && this.state === 'play') this.debug.rover();
         if (i.wasPressed('KeyM')) {
             if (i.keys.has('ShiftLeft') || i.keys.has('ShiftRight')) {
                 // hold one music mode, to hear a song's layers without fighting
@@ -827,6 +842,20 @@ class Game {
                 g.player.yaw = yaw;
                 g.player.pitch = pitch;
             },
+            // Mars: put the rover at (x, z) facing yaw (default: just in front of Lincoln), opts.flipped = upside down
+            rover(x, z, yaw, opts = {}) {
+                const R = g.rover;
+                if (!R) return null;
+                if (x == null) {
+                    const P = g.player;
+                    x = P.pos.x - Math.sin(P.yaw) * 6;
+                    z = P.pos.z - Math.cos(P.yaw) * 6;
+                    yaw = P.yaw;
+                }
+                R.place(x, z, yaw || 0, opts);
+                R.found = !opts.flipped;
+                return { pos: R.pos.toArray().map((v) => +v.toFixed(2)), flipped: R.flipped };
+            },
             // Run gameplay for N seconds without rendering (for automated tests)
             simulate(seconds, inp = {}, track = null) {
                 const dt = 1 / 30;
@@ -849,9 +878,11 @@ class Game {
                     g.time += dt;
                     g.stats.time += dt;
                     g.player.update(dt, i);
+                    if (g.rover) g.rover.update(dt, i);
                     g.aliens.update(dt);
                     g.combat.update(dt);
                     g.level.update(dt);
+                    if (g.rover) g.rover.lateUpdate(dt, i);
                     g.player.updateCamera(g.camera, dt);
                     g.world.update(dt, g.camera, g.player.pos);
                     g.effects.update(dt);

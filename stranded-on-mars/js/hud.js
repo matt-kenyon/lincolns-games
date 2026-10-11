@@ -257,14 +257,21 @@ export class HUD {
         const low = P.health <= 2 && !P.dead;
         if (L.low !== low) { L.low = low; this.lowEl.classList.toggle('on', low); }
 
-        // heat
-        this.heatFill.style.width = (P.heat * 100).toFixed(1) + '%';
-        if (L.over !== P.overheated) {
-            L.over = P.overheated;
-            this.heatEl.classList.toggle('over', P.overheated);
-            this.heatLabel.textContent = P.overheated ? 'OVERHEATED!' : '';
+        // heat (the rover's turret has its own, shown here while driving)
+        const R = g.rover && g.rover.driving ? g.rover : null;
+        const Wp = R || P;
+        if (L.gun !== !!R) {
+            L.gun = !!R;
+            this.wname = this.wname || document.querySelector('#weapon .wname');
+            this.wname.textContent = R ? 'ROVER TURRET' : 'PLASMA BLASTER';
         }
-        this.cross.classList.toggle('hot', P.heat > 0.7 && !P.overheated);
+        this.heatFill.style.width = (Wp.heat * 100).toFixed(1) + '%';
+        if (L.over !== Wp.overheated) {
+            L.over = Wp.overheated;
+            this.heatEl.classList.toggle('over', Wp.overheated);
+            this.heatLabel.textContent = Wp.overheated ? 'OVERHEATED!' : '';
+        }
+        this.cross.classList.toggle('hot', Wp.heat > 0.7 && !Wp.overheated);
 
         // grenades
         const gk = P.grenades;

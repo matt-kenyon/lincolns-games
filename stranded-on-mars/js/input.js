@@ -111,6 +111,10 @@ export class Input {
             grenade: this.mouseRPressed || this.pressed.has('KeyG') || this.pressed.has('KeyQ'),
             grenadePressed: this.mouseRPressed || this.pressed.has('KeyG') || this.pressed.has('KeyQ'),
             interact: this.pressed.has('KeyE') || this.pressed.has('KeyF'),
+            // held keys (the rover: hold E to flip it, Space = handbrake, hold R to call it)
+            interactHeld: k.has('KeyE') || k.has('KeyF'),
+            jumpHeld: k.has('Space'),
+            callHeld: k.has('KeyR'),
             pause: this.pressed.has('Escape') || this.pressed.has('KeyP'),
             confirm: this.pressed.has('Enter') || this.pressed.has('Space'),
             skip: this.pressed.has('Enter') || this.pressed.has('Escape') || this.pressed.has('Space'),
@@ -144,6 +148,9 @@ export class Input {
             if (b[7]) s.fire = true;
             if (this.padPressed.has(6) || this.padPressed.has(4)) { s.grenade = true; s.grenadePressed = true; }
             if (this.padPressed.has(2) || this.padPressed.has(5) || this.padPressed.has(1)) s.interact = true;
+            if (b[2] || b[5] || b[1]) s.interactHeld = true;
+            if (b[0]) s.jumpHeld = true;
+            if (b[3]) s.callHeld = true;
             if (this.padPressed.has(9)) s.pause = true;
             if (this.padPressed.has(0) || this.padPressed.has(9)) s.skip = true;
         }
