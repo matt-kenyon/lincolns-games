@@ -32,6 +32,21 @@ choose with the arrow keys / d-pad and press Enter / A.
 
 An Xbox-style game controller works too.
 
+**Driving the rover** (the LINCOLN-1's emergency rover, once you've found it and flipped it back on its wheels):
+
+| Key | Controller | Action |
+| --- | --- | --- |
+| E | X / B / RB | Get in, get out |
+| W A S D | Left stick | Drive toward where the camera looks (S brakes, then backs up) |
+| Mouse | Right stick | Turn the camera (and aim the turret) |
+| Click (hold) | Right trigger | Fire the turret (it overheats too) |
+| Space (hold) | A (hold) | Handbrake: big drifts |
+| W / S, A / D in the air | Left stick | Tip the nose and roll, to land on the wheels |
+| Hold E | Hold X | Flip it back over when it tips |
+| Hold R | Hold Y | Call the rover to you |
+
+Run aliens over to bowl them into the air (STRIKE!). The Alien Captain is too tough to run over.
+
 **Settings** (the SETTINGS button on the title screen, or press Esc to pause): mouse sensitivity, look
 sensitivity for a game controller's right stick, up/down look speed, invert up/down, volume and music. They're
 saved in the browser, and RESET LOOK SETTINGS puts the look options back to normal.
@@ -42,7 +57,8 @@ saved in the browser, and RESET LOOK SETTINGS puts the look options back to norm
 | --- | --- |
 | `js/layout.js` | The level: canyon path, alien positions, where the ship parts landed |
 | `js/config.js` | Difficulty levels and player stats (speed, jump height, blaster heat...) |
-| `js/aliens.js` | Alien looks, ranks (scout / trooper / major / captain) and how they fight |
+| `js/aliens.js` | Alien looks, ranks (scout / trooper / major / captain, plus hover-bike riders) and how they fight |
+| `js/rover.js` | Lincoln's rover: the model, its bouncy driving physics, the chase camera, the turret, running aliens over |
 | `js/cinematics.js` | The intro "pre-show" and the ending on the Moon |
 | `js/world.js` | Sky, terrain decorations, force fields, the crash site |
 | `js/ship.js` | The LINCOLN-1 spaceship and its 5 detachable parts |
@@ -67,7 +83,7 @@ kept old files (Safari especially) can mix old and new code after the update and
 
 Add `?debug` to the URL for test keys: `1`-`5` jump to checkpoints, `K` defeats the aliens in the current
 area, `I` toggles invincibility, `L` gives all ship parts, `9` jumps to level 2 (the mothership) and `0` jumps to
-its escape pod. On the mothership, `5` is the creature pit. Add `&quality=low` or `&quality=high` to pin the
+its escape pod. On the mothership, `5` is the creature pit. On Mars, `V` puts the rover right in front of you. Add `&quality=low` or `&quality=high` to pin the
 graphics quality (normally it adjusts itself to keep the game smooth).
 
 Automated tests (a full playthrough of both levels, boss balance, cutscene screenshots) live in `dev/`. See

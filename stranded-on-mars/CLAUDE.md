@@ -34,7 +34,8 @@ URL options: `?debug` turns on test keys and `window.game.debug`. `&quality=low|
 normally adaptive).
 
 Debug keys (with `?debug`): `1`-`5` jump to checkpoints, `K` defeats the aliens in the current area, `I` toggles
-invincibility, `L` gives all Mars ship parts, `9` jumps to level 2, `0` jumps to level 2's escape pod. `M` switches
+invincibility, `L` gives all Mars ship parts, `9` jumps to level 2, `0` jumps to level 2's escape pod, `V` (Mars) puts
+the rover 6 m in front of you (and makes it "found"). `M` switches
 the music set (each set in `sounds.js`, then the classic synth music), `Shift+M` holds one music mode (explore,
 combat, boss / ship, shipCombat, boss2) to hear a song's layers, `N` switches between the recorded and the classic
 synthesized sound effects. `dev/soundboard.html` plays every sound and song side by side.
@@ -56,6 +57,7 @@ Mars (`startOutro`), runs the capture cutscene and then level 2.
 | `cineShot(n, t)` | Fast-forward the running cutscene to shot `n`, `t` seconds in (use 99 to finish it) |
 | `simulate(sec, input, track)` | Run gameplay without rendering. `input` like `{fire: true, moveX: 1, jumpEvery: 1.3, interact: true}`. `track = true` auto-aims at the nearest alien, or the boss's eye |
 | `look(yaw, pitch)` | Point the camera |
+| `rover(x, z, yaw, opts)` | Mars: put the rover at (x, z) facing `yaw` (no arguments: 6 m in front of Lincoln). `opts.flipped` = upside down |
 
 Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.level.boss` (GLORBAX),
 `game.state`, `game.stage.key` (`'mars'` or `'ship'`).
@@ -81,6 +83,36 @@ Also useful: `game.player.god = true`, `game.player.spawn(x, z, yaw)`, `game.lev
 - **Aliens** (`aliens.js`): the models, AI and `AlienManager`. Level 2 waves: aliens with `wave > 0` start
   `dormant` and `startWave(zone, wave)` beams them in. The boss plugs into `AlienManager.boss` as a duck-typed
   target (`hitSegment`, `isArmored`, `armorHit`, `hurt`, `blast`, `aimPoint`, `targetable`...).
+  Hover-bike riders (type `'hoverbike'`) zoom around open ground, circle, strafe and dive-bomb. They spawn from
+  `HOVERBIKES` at the end of `layout.js` (`{x, z, zone}`), passed to `AlienManager` as `extras`: they wake and sleep
+  with their zone but don't count in `aliveInZone()`, so they never hold a force field closed. `Alien.launch(vel)`
+  (bowled over by the rover: flies off spinning, then poofs, counted like a kill), `knock()` and `dive()` are the
+  rover's hooks.
+- **Rover** (`rover.js`, Mars only): the LINCOLN-1's emergency rover, Lincoln's idea ("commandeer a Mars rover and
+  run over aliens", physics like Halo 3's Mongoose). A rigid body on four raycast spring wheels over
+  `world.groundAt/normalAt`, sub-stepped at 240 Hz, with the game's gravity (`PLAYER.gravity`). Tuning is the
+  `ROVER` table at the top of the file. Halo-style controls: the camera aims, W drives toward it, the turret fires
+  the blaster's bolts (`combat.playerBolt`) along the crosshair ray. It collides through the World interface
+  (`confinePlayer`, `blockByGates`, `domeBlocks`, `colliders` taller than 0.75 m, steep ground with normal.y < 0.6
+  as a wall). main.js calls `update()` after the player and `lateUpdate()` after the level (a level prompt with a
+  key wins over the rover's E prompt); `Player.update` returns early while riding and `Player.updateCamera` hands
+  the camera to `rover.applyCamera()`. Alien bolts hitting the rover or Lincoln on it do half damage
+  (`Player.hurt` adds up fractions). **The level's interface (keep these exactly):**
+  - `game.rover` exists on the Mars stage only (`useStage` swaps it; `null` aboard the mothership). It's hidden
+    until placed.
+  - `game.rover.place(x, z, yaw, { flipped })`: put it in the world (yaw 0 faces -Z, like the camera). No options =
+    upright and `found`; `flipped: true` = upside down and not found yet, waiting for "Hold E: flip the rover".
+  - `game.rover.driving` (boolean), `game.rover.pos` (Vector3, the body's center, about 0.9 m above the ground at
+    rest), `game.rover.speed` (m/s), `game.rover.placed`, `game.rover.found` ("Hold R: call the rover" only works
+    once found; set it for an old save, or place it upright).
+  - `game.rover.onFirstFlip`: set it to a function; called when the player flips a not-yet-found rover upright.
+  - `game.level.onRoverEnter?.()` is called every time the player gets in.
+  - Dying while driving respawns normally and parks the rover near that checkpoint (`onPlayerSpawn`). Measured:
+    0 to 24 m/s in about 4 s; off a 25 degree ramp (8 m long, 3.7 m tall) at full speed it leaves the lip at about
+    20 m/s (at ~25-30 degrees: the springs kick), peaks 3.3 m above the lip, is back at the lip's height 24.5 m out
+    and first touches flat ground about 30 m past the lip. `dev/tests/rover.json` measures it again. In the air it
+    levels itself (and lines up with sloped ground just below it); the stick tips it about 18 degrees, so landings
+    are mostly on the wheels and full-speed crashes into walls are what tip it over.
 - **Boss** (`boss.js`): GLORBAX. States `hidden → intro → idle ⇄ slam / spit / laser`, `roar` (phase change at
   66% / 33% HP, summons helper waves), then `dying → dead`. Only the open eye takes damage. Its tentacles are
   one tube mesh in world space, bent along Bezier curves on the CPU every frame (the hit spheres are separate). Balance knobs: `maxHp` (110 × difficulty),

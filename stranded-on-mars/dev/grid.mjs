@@ -17,7 +17,8 @@ const html = `<html><body style="margin:0;background:#000;display:grid;grid-temp
     + imgs.map((f) => f === '-' ? '<div></div>' : `<div style="position:relative"><img style="width:${w}px;height:${h}px;display:block" src="${pathToFileURL(path.resolve(f)).href}">`
         + `<span style="position:absolute;left:6px;top:4px;color:#ff0;font:bold ${w < 500 ? 12 : 16}px sans-serif;text-shadow:0 0 3px #000">${path.basename(f)}</span></div>`).join('')
     + '</body></html>';
-const browser = await chromium.launch({ args: ['--mute-audio'] });
+// BROWSER=chrome uses the Google Chrome installed on this Mac (like the other tools)
+const browser = await chromium.launch({ args: ['--mute-audio'], channel: process.env.BROWSER === 'chrome' ? 'chrome' : undefined });
 const page = await browser.newPage({ viewport: { width: c * (w + 2), height: Math.ceil(imgs.length / c) * (h + 2) } });
 // The page loads the images as files (embedding a big batch of screenshots as base64 can crash it).
 const tmp = path.resolve(out) + '.tmp.html';

@@ -226,7 +226,10 @@ export class Player {
         this.heat = 0;
         this.overheated = false;
         this.invuln = 1.5;
+        this.hpAcc = 0;
         this.updateEye();
+        // out of the rover's seat (if he was riding it, it comes along: rover.js)
+        g.rover?.onPlayerSpawn(x, z, yaw);
     }
 
     updateEye() {
@@ -266,7 +269,11 @@ export class Player {
             if (this.shield <= 0) g.audio.play('shieldDown');
         }
         if (dmg > 0) {
-            this.health = Math.max(0, this.health - dmg);
+            // whole half-hearts only (the rover halves damage, so it can be a quarter heart: it adds up)
+            this.hpAcc = (this.hpAcc || 0) + dmg;
+            const whole = Math.floor(this.hpAcc + 1e-6);
+            this.hpAcc -= whole;
+            this.health = Math.max(0, this.health - whole);
             g.hud.damage();
             g.audio.play('playerHurt');
         }
@@ -308,6 +315,16 @@ export class Player {
         this.lookDX = input.lookX + padX;
         this.lookDY = input.lookY + padY;
         this.recoilPitch = damp(this.recoilPitch, 0, 10, dt);
+
+        // riding the rover: it carries him (rover.js); the look above aims its camera and turret
+        if (g.rover && g.rover.driving) {
+            this.regenShield(dt);
+            this.heat = Math.max(0, this.heat - PLAYER.coolRate * dt);
+            this.sprintK = 0;
+            this.bobAmt = 0;
+            this.landDip = damp(this.landDip, 0, 7, dt);
+            return;
+        }
 
         // ---------------- move ----------------
         const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
@@ -423,17 +440,7 @@ export class Player {
             this.bobAmt = damp(this.bobAmt, 0, 6, dt);
         }
 
-        // ---------------- shield regen ----------------
-        if (!this.dead) {
-            if (this.shieldDelay > 0) this.shieldDelay -= dt;
-            else if (this.shield < this.maxShield) {
-                if (!this.shieldCharging) {
-                    this.shieldCharging = true;
-                    g.audio.play('shieldCharge');
-                }
-                this.shield = Math.min(this.maxShield, this.shield + PLAYER.shieldRate * dt);
-            } else this.shieldCharging = false;
-        }
+        this.regenShield(dt);
 
         // ---------------- weapons ----------------
         this.fireT -= dt;
@@ -467,6 +474,19 @@ export class Player {
         }
 
         this.updateEye();
+    }
+
+    // The shield charges back up after a few seconds without getting hit
+    regenShield(dt) {
+        if (this.dead) return;
+        if (this.shieldDelay > 0) this.shieldDelay -= dt;
+        else if (this.shield < this.maxShield) {
+            if (!this.shieldCharging) {
+                this.shieldCharging = true;
+                this.game.audio.play('shieldCharge');
+            }
+            this.shield = Math.min(this.maxShield, this.shield + PLAYER.shieldRate * dt);
+        } else this.shieldCharging = false;
     }
 
     // Convert a point from view-model space (camera-relative) into the world
@@ -548,6 +568,8 @@ export class Player {
             camera.fov = this.fov;
             camera.updateProjectionMatrix();
         }
+        // driving: the rover's chase camera takes over (and blends in and out)
+        this.game.rover?.applyCamera(camera, dt);
         this.forward.set(0, 0, -1).applyQuaternion(camera.quaternion);
         this.vm.update(dt, {
             bob: this.bob, bobAmt: this.bobAmt, sprint: this.sprintK, lookDX: this.lookDX, lookDY: this.lookDY,
