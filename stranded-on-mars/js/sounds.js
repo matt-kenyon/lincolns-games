@@ -123,13 +123,14 @@ export const MUSIC = {
 
 // A music set says, for each music mode the game asks for, which song plays and how loud each of
 // its layers is (layers not listed fade out). A mode the set doesn't list plays the classic synth music.
-// Mars modes: title, intro, explore, combat, boss (the Alien Captain).
+// Mars modes: title, intro, explore, drive (on the rover), combat, boss (the Alien Captain).
 // Mothership modes: ship, shipCombat (wave fights), boss2 (GLORBAX), boss2Mad (after its first roar),
 // boss2Rage (the last third, when it turns red), theme (the ending).
 const OURS = {
     title: { song: 'home-title', layers: { base: 1 } },
     intro: { song: 'home-intro', layers: { base: 1 } },
     explore: { song: 'home-mars', layers: { base: 1 } },
+    drive: { song: 'home-mars', layers: { base: 1, perc: 1 } },
     combat: { song: 'home-mars', layers: { base: 1, perc: 1, drive: 1 } },
     boss: { song: 'home-captain', layers: { base: 1 } },
     ship: { song: 'home-ship', layers: { base: 1 } },
@@ -145,6 +146,7 @@ export const MUSIC_SETS = {
         ...OURS,
         title: { song: 'woodland-level', layers: { base: 0.8 } },
         explore: { song: 'woodland-level', layers: { base: 1 } },
+        drive: { song: 'woodland-level', layers: { base: 1, drums: 0.6 } },
         combat: { song: 'woodland-level', layers: { base: 1, drums: 1 } },
         boss: { song: 'woodland-boss', layers: { main: 1 } },
     },
@@ -156,9 +158,9 @@ export const MUSIC_SET = 'ours';   // the set players hear: Lincoln's theme ever
 
 // The songs each stage needs, loaded when the stage starts (and the other stage's songs freed)
 export const STAGE_MODES = {
-    mars: ['title', 'intro', 'explore', 'combat', 'boss'],
+    mars: ['title', 'intro', 'explore', 'drive', 'combat', 'boss'],
     ship: ['intro', 'ship', 'shipCombat', 'boss2', 'boss2Mad', 'boss2Rage', 'theme'],
 };
 
 // The classic synth music has fewer modes: these play as the mode on the right
-export const CLASSIC_MODE = { shipCombat: 'combat', boss2Mad: 'boss2', boss2Rage: 'boss2' };
+export const CLASSIC_MODE = { drive: 'explore', shipCombat: 'combat', boss2Mad: 'boss2', boss2Rage: 'boss2' };

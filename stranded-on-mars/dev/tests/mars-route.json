@@ -1,0 +1,41 @@
+[
+ {
+  "url": "/stranded-on-mars/?debug&quality=low"
+ },
+ {
+  "eval": "localStorage.clear(); 0"
+ },
+ {
+  "url": "/stranded-on-mars/?debug&quality=low"
+ },
+ {
+  "click": "#btn-start"
+ },
+ {
+  "wait": 800
+ },
+ {
+  "eval": "game.debug.cineShot(8, 0); game.player.god = true; window.ok = (c, m) => { if (!c) throw new Error('CHECK FAILED: ' + m); return true; }; const R = game.rover; ok(R && R.placed && R.flipped && !R.found, 'rover waits upside down at the camp'); ({ rover: R.pos.toArray().map((v) => +v.toFixed(1)), bikes: game.aliens.list.filter((a) => a.typeId === 'hoverbike').map((a) => a.zone) })"
+ },
+ {
+  "eval": "game.debug.teleport(2); game.debug.simulate(0.5, {}); game.debug.raid(); game.debug.simulate(1, {}); for (let i = 0; i < 12; i++) { game.debug.killZone(2); game.debug.simulate(1.2, {}); } ({ objective: game.level.objectiveText(), have: Object.keys(game.level.have) })"
+ },
+ {
+  "eval": "const R = game.rover, P = game.player; P.spawn(R.pos.x + 2.5, R.pos.z + 1.5, 0); P.yaw = Math.atan2(-(R.pos.x - P.pos.x), -(R.pos.z - P.pos.z)); game.debug.simulate(0.3, {}); game.debug.simulate(2.5, { interactHeld: true }); game.debug.simulate(1.5, {}); ok(R.found && !R.flipped, 'Hold E flips the rover and finds it'); game.debug.simulate(0.1, { interact: true }); game.debug.simulate(0.5, {}); ok(R.driving, 'E gets in'); ({ found: R.found, driving: R.driving })"
+ },
+ {
+  "eval": "(async () => { const L = await import('./js/layout.js'); const J = L.JUMP; const R = game.rover, P = game.player; const yaw = Math.atan2(-J.dir.x, -J.dir.z); if (R.driving) { game.debug.simulate(0.1, { interact: true }); game.debug.simulate(0.6, {}); } game.debug.rover(J.start.x, J.start.z, yaw); P.spawn(J.start.x + 2.2, J.start.z, yaw); game.debug.simulate(0.2, {}); game.debug.simulate(0.1, { interact: true }); game.debug.simulate(0.4, {}); ok(R.driving, 'driving at the ridge'); let maxY = -1e9, air = false, landed = null, lipSpeed = 0; for (let i = 0; i < 400 && !landed; i++) { P.yaw = yaw; P.pitch = -0.15; game.debug.simulate(0.05, { moveY: 1 }); const u = (R.pos.x - J.lip.x) * J.dir.x + (R.pos.z - J.lip.z) * J.dir.z; if (u < 0) lipSpeed = R.speed; const g = game.world.groundAt(R.pos.x, R.pos.z); const h = R.pos.y - g; if (u > 0 && h > 2) air = true; maxY = Math.max(maxY, R.pos.y); if (air && h < 1.6 && u > 3) landed = { u: +u.toFixed(1), groundAboveFloor: +(g - J.base).toFixed(1) }; } ok(landed && landed.u > J.mesa.u0 && landed.groundAboveFloor > L.MESA_HEIGHT - 1.5, 'the rover lands on the mesa'); game.debug.simulate(1.5, {}); return { lipSpeed: +lipSpeed.toFixed(1), peakAboveLip: +(maxY - (J.base + J.lipH)).toFixed(1), landed, upright: !R.flipped }; })()"
+ },
+ {
+  "wait": 300
+ },
+ {
+  "shot": "route_mesa.png"
+ },
+ {
+  "eval": "(async () => { const L = await import('./js/layout.js'); const R = game.rover, P = game.player; game.debug.simulate(0.1, { interact: true }); game.debug.simulate(0.6, {}); ok(!R.driving, 'got out on the mesa'); const w = L.PART_SPOTS.wing; const dx = w.x - P.pos.x, dz = w.z - P.pos.z; P.yaw = Math.atan2(-dx, -dz); for (let i = 0; i < 40 && Math.hypot(w.x - P.pos.x, w.z - P.pos.z) > 2; i++) game.debug.simulate(0.25, { moveY: 1 }); game.debug.simulate(0.2, {}); game.debug.simulate(0.1, { interact: true }); game.debug.simulate(0.5, {}); ok(game.level.have.wing, 'picked up the wing'); return { have: Object.keys(game.level.have), music: game.audio.mode, bikes: game.aliens.list.filter((a) => a.typeId === 'hoverbike' && a.zone === 3 && !a.dead).length }; })()"
+ },
+ {
+  "eval": "(async () => { const L = await import('./js/layout.js'); const R = game.rover, P = game.player; const x = L.JUMP.mesaCenter.x + 40, z = L.JUMP.mesaCenter.z + 60; game.debug.rover(x, z, 0); P.spawn(x + 2.2, z, 0); game.debug.simulate(0.2, {}); game.debug.simulate(0.1, { interact: true }); game.debug.simulate(0.3, {}); game.debug.simulate(1.5, { moveY: 1 }); return { driving: R.driving, music: game.audio.mode }; })()"
+ }
+]

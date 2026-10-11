@@ -557,7 +557,8 @@ export class Level {
         else this.combatT -= dt;
         const cap = g.aliens.captain();
         const bossFight = cap && !cap.dead && (cap.state === 'combat' || cap.state === 'alert');
-        g.audio.setMusic(bossFight ? 'boss' : this.combatT > 0 ? 'combat' : 'explore');
+        const driving = g.rover && g.rover.driving;
+        g.audio.setMusic(bossFight ? 'boss' : this.combatT > 0 ? 'combat' : driving ? 'drive' : 'explore');
 
         // ----- hints for new players -----
         if (!this.hints.move && t > 2) {

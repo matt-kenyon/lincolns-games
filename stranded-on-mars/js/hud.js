@@ -368,16 +368,33 @@ export class HUD {
     }
 
     toast(text, life = 2.6) {
+        // the same hint twice in a row would just stack up: skip it while it's still showing
+        for (const c of this.toastsEl.children) if (c.textContent === text) return;
         const t = document.createElement('div');
         t.className = 'toast';
         t.style.setProperty('--life', life + 's');
         t.textContent = text;
         this.toastsEl.appendChild(t);
-        while (this.toastsEl.children.length > 4) this.toastsEl.firstChild.remove();
+        while (this.toastsEl.children.length > 3) this.toastsEl.firstChild.remove();
         setTimeout(() => t.remove(), (life + 0.6) * 1000);
     }
 
+    // Area banners and big announcements share the middle of the screen, so they take turns
+    // (a long wait means something is spamming them: then just show this one now)
+    queueBanner(show, secs) {
+        const now = performance.now();
+        let wait = Math.max(0, (this.bannerUntil || 0) - now);
+        if (wait > 5000) wait = 0;
+        this.bannerUntil = now + wait + secs * 1000;
+        if (wait > 0) setTimeout(show, wait);
+        else show();
+    }
+
     announce(small, big) {
+        this.queueBanner(() => this.showAnnounce(small, big), 2.6);
+    }
+
+    showAnnounce(small, big) {
         const a = $('announce');
         a.querySelector('.a-small').textContent = small;
         a.querySelector('.a-big').textContent = big;
@@ -387,6 +404,10 @@ export class HUD {
     }
 
     zoneBanner(name, small = 'ENTERING') {
+        this.queueBanner(() => this.showZoneBanner(name, small), 3.6);
+    }
+
+    showZoneBanner(name, small) {
         const z = $('zone-banner');
         z.querySelector('.zb-small').textContent = small;
         z.querySelector('.zb-big').textContent = name;

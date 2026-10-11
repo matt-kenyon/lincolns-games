@@ -1,26 +1,48 @@
 [
- {"url": "/stranded-on-mars/?debug&quality=low"},
- {"eval": "localStorage.removeItem('strandedOnMars.save.v1'); game.newGame(); game.debug.skipIntro(); 0"},
- {"until": "game.state==='play'", "timeout": 30000},
- {"eval": "import('./js/layout.js').then((L) => { window.L = L; window.J = L.JUMP; window.need = (ok, what) => { if (!ok) throw new Error('FAILED: ' + what); return true; }; window.face = (x, z) => { const P = game.player; P.yaw = Math.atan2(-(x - P.pos.x), -(z - P.pos.z)); }; window.walkTo = (wps, secs, inp = {}) => { const P = game.player; let i = 0, t = 0; while (t < secs && i < wps.length) { const w = wps[i]; if (Math.hypot(P.pos.x - w[0], P.pos.z - w[1]) < 4) { i++; continue; } face(w[0], w[1]); game.debug.simulate(0.25, Object.assign({ moveY: 1, sprint: true }, inp)); t += 0.25; } return { reached: i, t }; }; game.player.god = true; return 0; })"},
-
- {"eval": "const out = []; let best = { u: -99, y: 0 }; const yaw = Math.atan2(-J.dir.x, -J.dir.z); for (let k = 0; k <= 26; k++) { game.debug.plains('crest'); const P = game.player; P.yaw = yaw; game.debug.simulate(0.9 + k * 0.04, { moveY: 1, sprint: true }); game.debug.simulate(0.034, { moveY: 1, sprint: true, jump: true }); let top = -99; for (let s = 0; s < 40; s++) { game.debug.simulate(0.05, { moveY: 1, sprint: true }); const o = game.debug.jumpUV(); if (o.y > L.MESA_HEIGHT - 0.6 && o.u > L.MESA_GAP - 0.5) top = Math.max(top, o.u); } const o = game.debug.jumpUV(); if (top > best.u) best = { u: top, k }; out.push(o.u.toFixed(0) + '/' + o.y.toFixed(0)); } need(best.u < 0, 'no way onto the mesa on foot from the ramp (landed on top at u=' + best.u + ')'); ({ landings: out.join(' ') })"},
-
- {"eval": "const M = J.mesa, c = J.mesaCenter; let maxY = 0; const res = []; for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; const R = Math.max(M.len, M.halfW * 2) * 0.5 + 18; game.player.spawn(c.x + Math.cos(a) * R, c.z + Math.sin(a) * R, 0); game.debug.simulate(0.2, {}); face(c.x, c.z); let y = 0; for (let s = 0; s < 24; s++) { game.debug.simulate(0.25, { moveY: 1, sprint: true, jumpEvery: 0.6 }); const o = game.debug.jumpUV(); const D = J.down; const onTop = o.u > L.MESA_GAP && o.y > L.MESA_HEIGHT - 1.5; const onLedge = o.u > D.u0 && o.u < D.u1 && o.v > D.v0 && o.v < D.v1 + 1 && o.y > L.MESA_HEIGHT - (L.MESA_HEIGHT - D.endH) * (o.u - D.u0) / (D.u1 - D.u0) - 1.5; if (onTop || onLedge) y = Math.max(y, o.y); } maxY = Math.max(maxY, y); res.push(y.toFixed(1)); } need(maxY === 0, 'mesa and its ledge path not climbable on foot (got to ' + maxY + ')'); ({ maxY, res: res.join(' ') })"},
-
- {"eval": "const D = J.down; const end = J.at(D.u1 + 7, (D.v0 + D.v1) / 2); const tgt = J.at(D.u1 - 4, (D.v0 + D.v1) / 2); let maxY = 0; for (let k = 0; k < 3; k++) { game.player.spawn(end.x + k, end.z, 0); game.debug.simulate(0.2, {}); face(tgt.x, tgt.z); for (let s = 0; s < 20; s++) { game.debug.simulate(0.25, { moveY: 1, sprint: true, jumpEvery: 0.5 }); maxY = Math.max(maxY, game.debug.jumpUV().y); } } need(maxY < D.endH - 0.3, 'the ledge path is one way (got up to ' + maxY + ')'); ({ maxY })"},
-
- {"eval": "game.debug.plains('mesa'); const D = J.down; const a = J.at(D.u0 - 2, 8), b = J.at(D.u0 + 2, (D.v0 + D.v1) / 2), c = J.at(D.u1 - 1, (D.v0 + D.v1) / 2), d = J.at(D.u1 + 12, (D.v0 + D.v1) / 2); const r = walkTo([[a.x, a.z], [b.x, b.z], [c.x, c.z], [d.x, d.z]], 30, { sprint: false }); const o = game.debug.jumpUV(); need(o.y < 3, 'walked down the ledge path'); ({ r, o })"},
-
- {"eval": "game.debug.plains('mesa'); const o0 = game.debug.jumpUV(); const p = J.at(J.mesa.u0 + 20, -J.mesa.halfW - 15); const r = walkTo([[p.x, p.z]], 12); game.debug.simulate(2, {}); const o = game.debug.jumpUV(); need(o0.y > 16 && o.y < 3, 'hopped off the mesa'); ({ o0, o, r })"},
-
- {"eval": "game.debug.plains('gate'); game.world.openGate(3, true); const G = L.GATES[3]; const r = walkTo([[-150, -470], [-165, -540], [-175, -600], [G.x - G.tx * 10, G.z - G.tz * 10], [G.x + G.tx * 14, G.z + G.tz * 14]], 120); need(game.level.zone === 4, 'crossed the plains on foot'); ({ r, zone: game.level.zone })"},
-
- {"eval": "game.debug.plains('gate'); game.world.gates[3].open = false; game.world.gates[3].mesh.visible = true; const G = L.GATES[3]; const r = walkTo([[-165, -540], [-175, -600], [G.x + G.tx * 14, G.z + G.tz * 14]], 60); need(game.level.zone === 3, 'plains force field holds without the wing'); ({ zone: game.level.zone, obj: document.getElementById('objective').textContent })"},
-
- {"eval": "game.debug.plains('ridge'); const s = game.debug.simulate(7, { moveY: 1, sprint: true }); const o = game.debug.jumpUV(); need(o.y > 10, 'walk up the launch ridge'); ({ o })"},
- {"eval": "game.debug.plains('lip'); const o = game.debug.jumpUV(); need(Math.abs(o.y - (J.lipH - 0.3)) < 0.8, 'standing at the lip at its height (' + o.y + ')'); ({ o, lipH: J.lipH })"},
-
- {"eval": "const V = game.player.pos.constructor; const placed = []; const R = game.rover || { stub: true, pos: new V(), driving: false, found: false, onFirstFlip: null, place(x, z, yaw, o = {}) { this.pos.set(x, game.world.groundAt(x, z) + 0.9, z); this.found = !o.flipped; placed.push([Math.round(x), Math.round(z), !!o.flipped]); } }; window.__R = R; if (R.stub) game.rover = R; const M = game.level.missions; M.roverFound = false; M.placeRover(2); need(!R.stub || placed[0][2], 'rover placed flipped at the camp'); need(typeof R.onFirstFlip === 'function', 'onFirstFlip hooked'); game.debug.teleport(2); game.debug.killZone(2); game.debug.simulate(4, {}); const obj1 = document.getElementById('objective').textContent; need(/ROVER/.test(obj1) || game.level.partPickups.fuelTank, 'objective points to the rover'); R.onFirstFlip(); game.debug.simulate(0.2, {}); need(M.roverFound, 'rover found'); need(/FOUND THE ROVER/.test(document.getElementById('zone-banner').textContent), 'rover banner'); game.level.onRoverEnter(); need(M.roverRode, 'rover entered'); const sv = JSON.parse(localStorage.getItem('strandedOnMars.save.v1')); need(sv.rover === true, 'rover saved'); placed.length = 0; M.placeRover(3); need(!R.stub || !placed[0][2], 'found rover placed upright later'); ({ placed, obj1, banner: document.getElementById('zone-banner').textContent, stub: !!R.stub })"},
- {"eval": "if (window.__R && window.__R.stub) game.rover = undefined; 0"}
+ {
+  "url": "/stranded-on-mars/?debug&quality=low"
+ },
+ {
+  "eval": "localStorage.removeItem('strandedOnMars.save.v1'); game.newGame(); game.debug.skipIntro(); 0"
+ },
+ {
+  "until": "game.state==='play'",
+  "timeout": 30000
+ },
+ {
+  "eval": "import('./js/layout.js').then((L) => { window.L = L; window.J = L.JUMP; window.need = (ok, what) => { if (!ok) throw new Error('FAILED: ' + what); return true; }; window.face = (x, z) => { const P = game.player; P.yaw = Math.atan2(-(x - P.pos.x), -(z - P.pos.z)); }; window.walkTo = (wps, secs, inp = {}) => { const P = game.player; let i = 0, t = 0; while (t < secs && i < wps.length) { const w = wps[i]; if (Math.hypot(P.pos.x - w[0], P.pos.z - w[1]) < 4) { i++; continue; } face(w[0], w[1]); game.debug.simulate(0.25, Object.assign({ moveY: 1, sprint: true }, inp)); t += 0.25; } return { reached: i, t }; }; game.player.god = true; return 0; })"
+ },
+ {
+  "eval": "const out = []; let best = { u: -99, y: 0 }; const yaw = Math.atan2(-J.dir.x, -J.dir.z); for (let k = 0; k <= 26; k++) { game.debug.plains('crest'); const P = game.player; P.yaw = yaw; game.debug.simulate(0.9 + k * 0.04, { moveY: 1, sprint: true }); game.debug.simulate(0.034, { moveY: 1, sprint: true, jump: true }); let top = -99; for (let s = 0; s < 40; s++) { game.debug.simulate(0.05, { moveY: 1, sprint: true }); const o = game.debug.jumpUV(); if (o.y > L.MESA_HEIGHT - 0.6 && o.u > L.MESA_GAP - 0.5) top = Math.max(top, o.u); } const o = game.debug.jumpUV(); if (top > best.u) best = { u: top, k }; out.push(o.u.toFixed(0) + '/' + o.y.toFixed(0)); } need(best.u < 0, 'no way onto the mesa on foot from the ramp (landed on top at u=' + best.u + ')'); ({ landings: out.join(' ') })"
+ },
+ {
+  "eval": "const M = J.mesa, c = J.mesaCenter; let maxY = 0; const res = []; for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; const R = Math.max(M.len, M.halfW * 2) * 0.5 + 18; game.player.spawn(c.x + Math.cos(a) * R, c.z + Math.sin(a) * R, 0); game.debug.simulate(0.2, {}); face(c.x, c.z); let y = 0; for (let s = 0; s < 24; s++) { game.debug.simulate(0.25, { moveY: 1, sprint: true, jumpEvery: 0.6 }); const o = game.debug.jumpUV(); const D = J.down; const onTop = o.u > L.MESA_GAP && o.y > L.MESA_HEIGHT - 1.5; const onLedge = o.u > D.u0 && o.u < D.u1 && o.v > D.v0 && o.v < D.v1 + 1 && o.y > L.MESA_HEIGHT - (L.MESA_HEIGHT - D.endH) * (o.u - D.u0) / (D.u1 - D.u0) - 1.5; if (onTop || onLedge) y = Math.max(y, o.y); } maxY = Math.max(maxY, y); res.push(y.toFixed(1)); } need(maxY === 0, 'mesa and its ledge path not climbable on foot (got to ' + maxY + ')'); ({ maxY, res: res.join(' ') })"
+ },
+ {
+  "eval": "const D = J.down; const end = J.at(D.u1 + 7, (D.v0 + D.v1) / 2); const tgt = J.at(D.u1 - 4, (D.v0 + D.v1) / 2); let maxY = 0; for (let k = 0; k < 3; k++) { game.player.spawn(end.x + k, end.z, 0); game.debug.simulate(0.2, {}); face(tgt.x, tgt.z); for (let s = 0; s < 20; s++) { game.debug.simulate(0.25, { moveY: 1, sprint: true, jumpEvery: 0.5 }); maxY = Math.max(maxY, game.debug.jumpUV().y); } } need(maxY < D.endH - 0.3, 'the ledge path is one way (got up to ' + maxY + ')'); ({ maxY })"
+ },
+ {
+  "eval": "game.debug.plains('mesa'); const D = J.down; const a = J.at(D.u0 - 2, 8), b = J.at(D.u0 + 2, (D.v0 + D.v1) / 2), c = J.at(D.u1 - 1, (D.v0 + D.v1) / 2), d = J.at(D.u1 + 12, (D.v0 + D.v1) / 2); const r = walkTo([[a.x, a.z], [b.x, b.z], [c.x, c.z], [d.x, d.z]], 30, { sprint: false }); const o = game.debug.jumpUV(); need(o.y < 3, 'walked down the ledge path'); ({ r, o })"
+ },
+ {
+  "eval": "game.debug.plains('mesa'); const o0 = game.debug.jumpUV(); const p = J.at(J.mesa.u0 + 20, -J.mesa.halfW - 15); const r = walkTo([[p.x, p.z]], 12); game.debug.simulate(2, {}); const o = game.debug.jumpUV(); need(o0.y > 16 && o.y < 3, 'hopped off the mesa'); ({ o0, o, r })"
+ },
+ {
+  "eval": "game.debug.plains('gate'); game.world.openGate(3, true); const G = L.GATES[3]; const r = walkTo([[-150, -470], [-165, -540], [-175, -600], [G.x - G.tx * 10, G.z - G.tz * 10], [G.x + G.tx * 14, G.z + G.tz * 14]], 120); need(game.level.zone === 4, 'crossed the plains on foot'); ({ r, zone: game.level.zone })"
+ },
+ {
+  "eval": "game.debug.plains('gate'); game.world.gates[3].open = false; game.world.gates[3].mesh.visible = true; const G = L.GATES[3]; const r = walkTo([[-165, -540], [-175, -600], [G.x + G.tx * 14, G.z + G.tz * 14]], 60); need(game.level.zone === 3, 'plains force field holds without the wing'); ({ zone: game.level.zone, obj: document.getElementById('objective').textContent })"
+ },
+ {
+  "eval": "game.debug.plains('ridge'); const s = game.debug.simulate(7, { moveY: 1, sprint: true }); const o = game.debug.jumpUV(); need(o.y > 10, 'walk up the launch ridge'); ({ o })"
+ },
+ {
+  "eval": "game.debug.plains('lip'); const o = game.debug.jumpUV(); need(Math.abs(o.y - (J.lipH - 0.3)) < 0.8, 'standing at the lip at its height (' + o.y + ')'); ({ o, lipH: J.lipH })"
+ },
+ {
+  "eval": "const V = game.player.pos.constructor; const placed = []; const R = game.rover || { stub: true, pos: new V(), driving: false, found: false, onFirstFlip: null, place(x, z, yaw, o = {}) { this.pos.set(x, game.world.groundAt(x, z) + 0.9, z); this.found = !o.flipped; placed.push([Math.round(x), Math.round(z), !!o.flipped]); } }; window.__R = R; if (R.stub) game.rover = R; const M = game.level.missions; M.roverFound = false; M.placeRover(2); need(!R.stub || placed[0][2], 'rover placed flipped at the camp'); need(typeof R.onFirstFlip === 'function', 'onFirstFlip hooked'); game.debug.teleport(2); game.debug.killZone(2); game.debug.simulate(4, {}); const obj1 = document.getElementById('objective').textContent; need(/ROVER/.test(obj1) || game.level.partPickups.fuelTank, 'objective points to the rover'); game.hud.bannerUntil = 0; R.onFirstFlip(); game.debug.simulate(0.2, {}); need(M.roverFound, 'rover found'); need(/FOUND THE ROVER/.test(document.getElementById('zone-banner').textContent), 'rover banner'); game.level.onRoverEnter(); need(M.roverRode, 'rover entered'); const sv = JSON.parse(localStorage.getItem('strandedOnMars.save.v1')); need(sv.rover === true, 'rover saved'); placed.length = 0; M.placeRover(3); need(!R.stub || !placed[0][2], 'found rover placed upright later'); ({ placed, obj1, banner: document.getElementById('zone-banner').textContent, stub: !!R.stub })"
+ },
+ {
+  "eval": "if (window.__R && window.__R.stub) game.rover = undefined; 0"
+ }
 ]

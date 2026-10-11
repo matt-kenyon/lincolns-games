@@ -908,7 +908,8 @@ export class Rover {
             const ox = cy * ex + sy * ez, oz = -sy * ex + cy * ez;
             const px = pos.x + ox, pz = pos.z + oz;
             const gy = W.groundAt(px, pz);
-            const rise = gy - bottom - 0.9;
+            // measured from the rover itself, not the ground under it: flying over a cliff top isn't a wall
+            const rise = gy - Math.max(bottom, pos.y - 1.0) - 0.9;
             if (rise <= 0) continue;
             W.normalAt(px, pz, _n);
             if (_n.y > 0.6 || _n.x * ox + _n.z * oz > 0) continue;

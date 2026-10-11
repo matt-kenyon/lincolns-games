@@ -77,6 +77,7 @@ To freeze the game for a screenshot after `game.debug.simulate()`, set `game.sta
 | `rooms.json` | One screenshot of every mothership room |
 | `finale.json` | Screenshots of the escape pod ending and the end screen |
 | `perf.json` | Draw calls and triangles in each area of both levels (including the camp, the plains and the frozen crater) |
+| `mars-route.json` | The new Mars route with the real rover: it waits upside down at the camp, the raid opens the cage, Hold E flips it, then a full-speed run up the launch ridge lands it on the mesa (lip speed, peak, landing distance) and the wing gets picked up |
 | `rover.json` | Lincoln's rover: getting in, top speed, a hard turn (drift) and the handbrake, a 25 degree ramp jump (measured: lip speed, peak height, distance), a wall crash that tips it over and "Hold E" flipping it back, running an alien over (counted as beaten), an alien diving out of the way, the turret, ramming a hover-biker, half damage on the rover, getting out, "Hold R" calling it, dying while driving, debug `V`, the Alien Captain bouncing it off. Screenshots `out/rover*.png` |
 | `astronaut.json` | Lincoln (the hero) in every cutscene shot he's in, plus a turntable of the model and his poses (`turntable.js`), and the first-person glove + blaster on Mars and the mothership. `turntable.js` also has `gunViews()`, the blaster from four angles |
 

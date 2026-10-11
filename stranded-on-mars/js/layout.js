@@ -365,12 +365,11 @@ export function zoneAtS(s) {
 // ------------------------------------------------------------
 // Hover-bike aliens (aliens.js type 'hoverbike'): they zoom around open ground. Each one lives in a zone
 // (it wakes up and sleeps with that zone) but doesn't count toward clearing it. { x, z, zone }
-// These three are placeholders in the landing site for testing; the real ones go out on the open plains.
-// When the Great Dust Plains (zone 3) are in, use these instead (open ground, off the launch ridge's line):
-//   { x: -175, z: -505, zone: 3 }, { x: -300, z: -520, zone: 3 }, { x: -205, z: -640, zone: 3 }, { x: -285, z: -610, zone: 3 },
+// They chase you across the Great Dust Plains (zone 3): open ground, off the launch ridge's line.
 // ------------------------------------------------------------
 export const HOVERBIKES = [
-    { x: -24, z: -48, zone: 0 },
-    { x: 26, z: -40, zone: 0 },
-    { x: 4, z: -58, zone: 0 },
+    { x: -175, z: -505, zone: 3 },
+    { x: -300, z: -520, zone: 3 },
+    { x: -205, z: -640, zone: 3 },
+    { x: -285, z: -610, zone: 3 },
 ];
